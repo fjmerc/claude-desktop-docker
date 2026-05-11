@@ -120,11 +120,13 @@ jobs:
           cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
           cache-to: type=registry,ref=fjmerc/claude-desktop:buildcache,mode=max
 
-      - name: Update Docker Hub Description
-        uses: peter-evans/dockerhub-description@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: fjmerc/claude-desktop
-          short-description: "Claude Desktop Docker - Run Claude Desktop in a Docker container"
-          readme-filepath: ./dockerhub/DOCKERHUB.md
+      # NOTE: Docker Hub's repository-management API (the endpoint that
+      # updates a repo's short / long description) rejects Personal Access
+      # Tokens — it only accepts the actual account password. Auto-updating
+      # the description from CI therefore requires storing your real
+      # password as a secret, which is a security downgrade we won't do.
+      # Update `dockerhub/DOCKERHUB.md` here, then paste it into the
+      # "Repository Overview" box at
+      #   https://hub.docker.com/repository/docker/fjmerc/claude-desktop/general
+      # by hand when you release. (Or re-add a peter-evans/dockerhub-description
+      # step with a DOCKERHUB_PASSWORD secret if you change your mind.)
