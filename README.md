@@ -60,7 +60,12 @@ http://localhost:6080/
 Sign in with your Anthropic account using the email-code flow (no browser
 required for OAuth — the desktop app handles email verification in-window).
 
-## Subsequent operations
+## Managing a source build
+
+These commands assume you cloned the repo and ran `./claude.sh build` above. If
+you ran the prebuilt image with `docker run` instead, use plain `docker`
+commands (`docker start claude-desktop`, `docker stop claude-desktop`,
+`docker exec -it claude-desktop bash`, `docker logs -f claude-desktop`).
 
 ```bash
 ./claude.sh start           # docker-compose up -d (auto-launches Claude if built)
@@ -99,8 +104,9 @@ Both are gitignored. Variables you'll likely set:
 | `KIOSK_MODE` | `true` = minimal openbox + Claude only (no XFCE panel/desktop). `Super+Space` relaunches if you close it. | unset (full XFCE) |
 
 Bind mounts (only via the override file) for the most common personal-data
-patterns: a host directory exposed to Claude as `/root/memory`, and the
-`claude_desktop_config.json` MCP-server config file. See
+patterns: a host directory exposed to Claude (mounted at `/data` inside the
+container in the shipped example — you can pick any in-container path), and
+the `claude_desktop_config.json` MCP-server config file. See
 `docker-compose.override.yml.example` for the exact syntax.
 
 The default is full XFCE — better for MCP power users who want a terminal
@@ -115,26 +121,32 @@ The reason most people run this project is to give Claude Desktop access to
 the local filesystem (notes, code, knowledge bases) through an **MCP**
 filesystem server. The pattern:
 
-1. Bind-mount a host directory to `/root/memory` (or any path) inside the
-   container by uncommenting the matching line in
-   `docker-compose.override.yml`.
+1. Bind-mount a host directory to a path inside the container (the shipped
+   override example uses `/data`, but the in-container path is your choice)
+   by uncommenting the matching line in `docker-compose.override.yml`.
 
 2. Configure an MCP filesystem server in
    `/root/.config/Claude/claude_desktop_config.json`. Either edit it
    inside the container (`./claude.sh shell`, then your editor) or
    bind-mount the file from the host so you can use your own tools.
-   Example:
+   The in-container path on the last line of `args` must match whatever
+   you chose in step 1. Example:
 
    ```json
    {
      "mcpServers": {
-       "memory": {
+       "host-files": {
          "command": "npx",
-         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/root/memory"]
+         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
        }
      }
    }
    ```
+
+   The key `"host-files"` is just the name Claude shows for this server —
+   pick whatever you like. (Don't use `"memory"`, which collides with the
+   official `@modelcontextprotocol/server-memory` package, a different
+   thing.)
 
 3. Restart Claude (close and reopen the window inside the container, or
    `./claude.sh restart`).

@@ -14,10 +14,12 @@ services:
   claude-desktop:
     volumes:
       # === Local files exposed to Claude via filesystem MCP ===
-      # Point Claude's MCP filesystem server at /root/memory (or any path
-      # you prefer); the host directory below is what actually backs it.
+      # Pick an in-container path (the example uses /data, but you can use
+      # any path) and point Claude's MCP filesystem server at it via
+      # claude_desktop_config.json. The host directory below is what
+      # actually backs that path.
       # Uncomment and edit:
-      # - /home/YOUR_USER/Documents/memory:/root/memory
+      # - /home/YOUR_USER/Documents/notes:/data
 
       # === MCP server config, editable from the host ===
       # claude_desktop_config.json defines which MCP servers Claude loads.
