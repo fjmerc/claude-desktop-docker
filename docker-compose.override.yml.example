@@ -1,0 +1,37 @@
+# Personal/host-specific overrides for claude-desktop-docker.
+#
+# Copy to `docker-compose.override.yml` (untracked) and edit as needed.
+# Compose auto-merges this with docker-compose.yml on every command.
+#
+# Use cases:
+#   - Bind-mount a host directory so a filesystem MCP server inside Claude
+#     can read/write your knowledge base, notes, etc.
+#   - Bind-mount your MCP config file so you can edit it from the host
+#     instead of `docker exec` + an editor inside the container.
+#   - Pin a fixed VNC password without setting an env var manually.
+
+services:
+  claude-desktop:
+    volumes:
+      # === Local files exposed to Claude via filesystem MCP ===
+      # Point Claude's MCP filesystem server at /root/memory (or any path
+      # you prefer); the host directory below is what actually backs it.
+      # Uncomment and edit:
+      # - /home/YOUR_USER/Documents/memory:/root/memory
+
+      # === MCP server config, editable from the host ===
+      # claude_desktop_config.json defines which MCP servers Claude loads.
+      # Bind-mounting just this file lets you edit it with your normal
+      # tools and have Claude pick up changes after a restart.
+      # The host file must exist before `docker-compose up`; create an
+      # empty `{ "mcpServers": {} }` first if you don't have one.
+      # - /home/YOUR_USER/.config/claude-desktop-docker/claude_desktop_config.json:/root/.config/Claude/claude_desktop_config.json
+
+    environment:
+      # === Pin the VNC password (default: random, printed in docker logs) ===
+      # - VNC_PASSWORD=changeme
+
+      # === Kiosk mode: openbox + Claude only, no XFCE ===
+      # Default is full XFCE. Uncomment for a single-app screen experience.
+      # Super+Space relaunches Claude if you close it.
+      # - KIOSK_MODE=true

@@ -1,0 +1,181 @@
+# =============================================================================
+# Multi-stage build: a fat builder that compiles Claude Desktop, and a slim
+# runtime that contains only the artifacts and the desktop/VNC stack needed
+# to run them. Keeps published image ~1.2GB smaller than a single-stage build
+# would, which matters for Docker Hub bandwidth and ARM64 pulls.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1: builder — has rustup, build-essential, p7zip, imagemagick, etc.
+#                    Runs build-claude.sh + desktop-integration.sh and is
+#                    discarded. Only /root/claude-app and integration files
+#                    are copied into the runtime stage.
+# -----------------------------------------------------------------------------
+FROM ubuntu:22.04 AS builder
+
+ARG TARGETARCH
+ARG BUILDARCH
+ARG VERSION=0.9.2
+ARG NODE_VERSION=22.x
+
+ENV USER=root
+ENV HOME=/root
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CLAUDE_VERSION=${VERSION}
+ENV TARGETARCH=${TARGETARCH}
+ENV BUILDARCH=${BUILDARCH}
+
+# Bootstrap: TLS, NodeSource repo, then Node.js + build tools + asar/electron.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg lsb-release apt-transport-https && \
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - && \
+    apt-get install -y --no-install-recommends \
+        nodejs build-essential git rsync wget \
+        p7zip-full imagemagick icoutils \
+        libssl-dev pkg-config && \
+    npm install -g asar @napi-rs/cli electron && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Rustup. apt's rustc 1.75 is too old for current crate MSRVs (e.g. unicode-
+# segmentation needs 1.85+). --profile minimal keeps it lean.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --profile minimal --default-toolchain stable && \
+    ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo && \
+    ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc
+
+WORKDIR /root
+COPY claude-linux-desktop-build /root/claude-linux-desktop-build/
+COPY scripts /scripts/
+RUN chmod +x /root/claude-linux-desktop-build/*.sh && \
+    chmod +x /scripts/utils/*.sh /scripts/run/*.sh /scripts/build/*.sh /scripts/fix/*.sh
+
+# Build Claude Desktop and run desktop integration. install.sh is intentionally
+# NOT called — it would extract a duplicate copy to ~/.local/claude-desktop;
+# the slim integration script handles desktop-menu/icon registration without
+# the duplication.
+RUN echo "Building Claude Desktop for ${TARGETARCH}" && \
+    cd /root/claude-linux-desktop-build && \
+    export APP_INSTALL_DIR=/root/claude-app && \
+    ./build-claude.sh && \
+    /scripts/utils/desktop-integration.sh
+
+# -----------------------------------------------------------------------------
+# Stage 2: runtime — XFCE + TigerVNC + noVNC + Electron's runtime libraries,
+#                    plus the built Claude artifacts copied from the builder.
+#                    No rustup, no build-essential, no p7zip/imagemagick.
+# -----------------------------------------------------------------------------
+FROM ubuntu:22.04 AS runtime
+
+ARG TARGETARCH
+ARG BUILDARCH
+ARG VERSION=0.9.2
+ARG NODE_VERSION=22.x
+
+ENV USER=root
+ENV HOME=/root
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CLAUDE_VERSION=${VERSION}
+ENV TARGETARCH=${TARGETARCH}
+ENV BUILDARCH=${BUILDARCH}
+
+# Node.js + electron globally. We copy /root/claude-app from the builder; the
+# launcher invokes electron from PATH, so we still need it installed here.
+# (Could skip Node.js if we copied the npm-global tree too, but the savings
+# are small and this is simpler.)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg lsb-release apt-transport-https && \
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - && \
+    apt-get install -y --no-install-recommends \
+        nodejs && \
+    npm install -g electron && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Desktop environment + VNC stack.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        xfce4 \
+        xfce4-terminal \
+        mousepad \
+        tigervnc-standalone-server \
+        tigervnc-common \
+        tigervnc-tools \
+        novnc \
+        websockify \
+        net-tools \
+        xfonts-base \
+        xfonts-75dpi \
+        xfonts-100dpi \
+        xauth \
+        dbus \
+        dbus-x11 \
+        at-spi2-core \
+        libglib2.0-bin \
+        autocutsel \
+        xclip \
+        wmctrl \
+        openbox \
+        nano \
+        vim \
+        xdg-utils \
+        desktop-file-utils \
+        x11-xserver-utils \
+        x11-utils \
+        scrot \
+        libnspr4 \
+        libnss3 \
+        libatk1.0-0 \
+        libatk-bridge2.0-0 \
+        libcups2 \
+        libdrm2 \
+        libgtk-3-0 \
+        libgbm1 \
+        libasound2 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Replace Ubuntu 22.04's noVNC 1.0.0 with upstream v1.6.0. The apt package is
+# pre-Async-Clipboard-API, so browser Ctrl+C/V cannot push text into the VNC
+# session — only the manual sidebar Clipboard panel works. v1.5+ integrates
+# the browser's Async Clipboard API, making Ctrl+V transparent on localhost
+# (browser asks for clipboard permission once). websockify ships separately,
+# so removing the directory contents is safe.
+RUN rm -rf /usr/share/novnc && \
+    mkdir -p /usr/share/novnc && \
+    curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz | \
+        tar -xz -C /usr/share/novnc --strip-components=1
+
+# Setup directories. Password file is written at runtime by startup.sh.
+RUN mkdir -p /root/.vnc /scripts/utils /scripts/run /scripts/build /scripts/fix /dockerhub/logs && \
+    touch /root/.Xauthority && chmod 600 /root/.Xauthority
+
+# VNC config + xstartup + main scripts (small; no need to multistage).
+COPY scripts/utils/xstartup /scripts/utils/xstartup
+COPY scripts/utils/xstartup /root/.vnc/xstartup
+COPY scripts/utils/config /root/.vnc/config
+COPY scripts/run/startup.sh /startup.sh
+COPY scripts /scripts/
+RUN chmod +x /root/.vnc/xstartup /scripts/utils/xstartup /startup.sh && \
+    chmod 644 /root/.vnc/config && \
+    chmod +x /scripts/utils/*.sh /scripts/run/*.sh /scripts/build/*.sh /scripts/fix/*.sh && \
+    ln -sf /scripts/utils/xstartup /scripts/xstartup && \
+    ln -sf /scripts/utils/config /scripts/config && \
+    ln -sf /scripts/utils/verify-dependencies.sh /scripts/verify-dependencies.sh
+
+# Bring in the built Claude Desktop and the desktop-integration artifacts
+# from the builder stage. This is the entire payload that needs to persist
+# from build time to runtime.
+COPY --from=builder /root/claude-app /root/claude-app
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /root/Desktop /root/Desktop
+COPY --from=builder /usr/local/bin/claude-desktop /usr/local/bin/claude-desktop
+
+WORKDIR /root
+EXPOSE 5901 6080
+
+# Healthcheck verifies VNC is up AND a Claude renderer is alive (so a crashed
+# Electron process surfaces as unhealthy instead of green-on-port-only).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD nc -z localhost 5901 && pgrep -f 'electron.*app.asar' >/dev/null || exit 1
+
+CMD ["/startup.sh"]

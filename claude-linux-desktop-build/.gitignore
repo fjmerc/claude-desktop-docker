@@ -1,0 +1,19 @@
+# Build directories
+/claude-desktop-builder/
+/build/
+/output/
+/downloads/
+
+# Temporary files
+*.bak
+*.tmp
+*.log
+*.swp
+.DS_Store
+
+# Downloaded installers
+*.exe
+*.nupkg
+
+# Compiled native modules
+*.node

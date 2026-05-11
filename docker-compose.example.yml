@@ -1,0 +1,39 @@
+version: '3'
+services:
+  claude-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-desktop
+    ports:
+      - "5901:5901"  # VNC port
+      - "6080:6080"  # noVNC web interface port
+    volumes:
+      - ${PWD}/claude-linux-desktop-build:/root/claude-linux-desktop-build
+      - ${PWD}/scripts:/scripts
+      - app:/root/claude-app
+      - cache:/root/.cache
+      - config:/root/.config/Claude
+      - home:/root/home
+      # Example of mounting your own files - replace with your path
+      # - /path/to/your/files:/root/files
+    environment:
+      - DISPLAY=:1
+      - APP_INSTALL_DIR=/root/claude-app
+      - DEBIAN_FRONTEND=noninteractive
+      - USER=root
+      - HOME=/root
+      - XDG_RUNTIME_DIR=/tmp/xdg-runtime-dir
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session
+    privileged: true  # This gives necessary permissions for X11
+    shm_size: 2gb    # Increase shared memory for UI applications
+    restart: unless-stopped
+volumes:
+  app:
+    driver: local
+  cache:
+    driver: local
+  config:
+    driver: local
+  home:
+    driver: local

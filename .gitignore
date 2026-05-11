@@ -1,0 +1,38 @@
+# Ignore commits directory (documentation for commits)
+commits/
+
+# Ignore archive directory (build artifacts and distributions)
+archive/
+
+# Ignore build artifacts
+*.tar.gz
+*.zip
+*.exe
+*.deb
+*.rpm
+
+# Ignore temporary files
+*.tmp
+*.bak
+*.swp
+.DS_Store
+*~
+
+# Ignore cache directories
+.cache/
+__pycache__/
+node_modules/
+
+# Ignore build output
+dist/
+
+# Ignore Docker related files that may contain sensitive data
+.env
+.docker-env
+docker-compose.yml
+docker-compose.override.yml
+claude_desktop_config.json
+
+# Ignore logs
+*.log
+logs/

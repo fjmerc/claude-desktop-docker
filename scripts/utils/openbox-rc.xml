@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal openbox config for KIOSK_MODE.
+  Used by xstartup-kiosk, which copies this file to ~/.config/openbox/rc.xml.
+
+  - No panel, no taskbar — root window is the only thing on screen.
+  - Claude window opens borderless and maximized (see <applications>).
+  - Super+Space relaunches Claude if you accidentally close it.
+-->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus>
+    <focusNew>yes</focusNew>
+  </focus>
+
+  <placement>
+    <policy>UnderMouse</policy>
+  </placement>
+
+  <keyboard>
+    <!-- Super+Space: relaunch Claude (the patched launcher auto-detects
+         root and adds --no-sandbox, so a bare command is fine). -->
+    <keybind key="W-space">
+      <action name="Execute">
+        <command>claude-desktop</command>
+        <startupnotify>
+          <enabled>yes</enabled>
+        </startupnotify>
+      </action>
+    </keybind>
+
+    <!-- F11: toggle fullscreen (handy if you want to compare states). -->
+    <keybind key="F11">
+      <action name="ToggleFullscreen"/>
+    </keybind>
+
+    <!-- Alt+F4: close focused window. -->
+    <keybind key="A-F4">
+      <action name="Close"/>
+    </keybind>
+  </keyboard>
+
+  <applications>
+    <!-- Claude's WM_CLASS is "Claude" (verified via xprop on a running
+         instance). Tell openbox to drop window decorations and open it
+         maximized so the kiosk feels like a single-app screen. -->
+    <application class="Claude">
+      <decor>no</decor>
+      <maximized>true</maximized>
+      <skip_taskbar>no</skip_taskbar>
+    </application>
+  </applications>
+</openbox_config>

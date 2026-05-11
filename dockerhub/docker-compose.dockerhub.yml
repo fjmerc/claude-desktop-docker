@@ -1,0 +1,46 @@
+services:
+  claude-desktop:
+    image: ${CLAUDE_DESKTOP_REPO:-fjmerc/claude-desktop}:${CLAUDE_DESKTOP_IMAGE_TAG:-latest}
+    container_name: claude-desktop
+    ports:
+      - "${VNC_PORT:-5901}:5901"   # VNC port
+      - "${NOVNC_PORT:-6080}:6080" # noVNC web interface port
+    volumes:
+      - app:/root/claude-app
+      - cache:/root/.cache
+      - config:/root/.config/Claude
+      - home:/root/home
+      - vnc:/root/.vnc
+    environment:
+      - DISPLAY=:1
+      - APP_INSTALL_DIR=/root/claude-app
+      - DEBIAN_FRONTEND=noninteractive
+      - USER=root
+      - HOME=/root
+      - XDG_RUNTIME_DIR=/tmp/xdg-runtime-dir
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session
+      # VNC password — random fallback printed to logs if unset on first boot.
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
+      # KIOSK_MODE=true: openbox + Claude only (no XFCE panel/desktop).
+      - KIOSK_MODE=${KIOSK_MODE:-}
+    privileged: true
+    shm_size: 2gb
+    restart: unless-stopped
+    healthcheck:
+      # Verify VNC is up AND a Claude renderer is alive (catch crashes).
+      test: ["CMD-SHELL", "nc -z localhost 5901 && pgrep -f 'electron.*app.asar' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+volumes:
+  app:
+    driver: local
+  cache:
+    driver: local
+  config:
+    driver: local
+  home:
+    driver: local
+  vnc:
+    driver: local

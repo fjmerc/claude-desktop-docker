@@ -1,0 +1,47 @@
+# Git files
+.git
+.gitignore
+.gitmodules
+
+# Node.js files
+node_modules
+npm-debug.log
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+*.AppImage
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+temp/
+.cache/
+
+# Docker files (to avoid recursive copying)
+.dockerignore
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Test files
+test/
+tests/
+__tests__/
+
+# Specific to Claude Desktop Docker
+claude-app/

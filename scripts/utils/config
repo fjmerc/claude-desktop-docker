@@ -1,0 +1,7 @@
+# TigerVNC server configuration.
+# TightVNC-only directives (name=, alwaysshared=, remote-resize=) were
+# removed when the project switched to tigervncserver — TigerVNC rejects
+# the unknown keys with a fatal "Unrecognized option" error and the
+# vncserver wrapper refuses to start. Keep this file minimal.
+geometry=1920x1080
+depth=24

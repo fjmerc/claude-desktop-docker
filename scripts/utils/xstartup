@@ -1,0 +1,68 @@
+#!/bin/bash
+export DISPLAY=:1
+unset SESSION_MANAGER
+
+# Make sure .Xauthority exists and has proper permissions
+touch $HOME/.Xauthority
+chmod 600 $HOME/.Xauthority
+
+# Set up D-Bus and XDG environment
+if [ -f /scripts/utils/dbus-setup.sh ]; then
+  source /scripts/utils/dbus-setup.sh
+fi
+
+# Load X resources if available
+[ -r $HOME/.Xresources ] && xrdb $HOME/.Xresources
+
+# Ensure config directories exist
+mkdir -p $HOME/.config/xfce4/xfconf/xfce-perchannel-xml
+mkdir -p $HOME/.config/Claude
+
+# Configure XFCE to handle resolution changes better
+cat > $HOME/.config/xfce4/xfconf/xfce-perchannel-xml/displays.xml << EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="displays" version="1.0">
+  <property name="Default" type="empty">
+    <property name="VNC-0" type="string" value="Virtual-0">
+      <property name="Active" type="bool" value="true"/>
+      <property name="Resolution" type="string" value="1920x1080"/>
+      <property name="RefreshRate" type="double" value="60.0"/>
+      <property name="Primary" type="bool" value="true"/>
+      <property name="Position" type="empty">
+        <property name="X" type="int" value="0"/>
+        <property name="Y" type="int" value="0"/>
+      </property>
+    </property>
+  </property>
+</channel>
+EOL
+
+# Enable clipboard sharing via VNC
+vncconfig -nowin &
+
+# Start clipboard synchronization tools
+if command -v autocutsel >/dev/null; then
+  autocutsel -fork -selection PRIMARY
+  autocutsel -fork -selection CLIPBOARD
+else
+  echo "autocutsel not found, clipboard integration may be limited"
+fi
+
+# Start XFCE desktop environment with better handling of display changes
+if command -v startxfce4 >/dev/null; then
+  # Wait for any X server initialization to complete
+  sleep 1
+  # Set initial display settings using xrandr if available
+  if command -v xrandr >/dev/null; then
+    # Try to set display but don't fail if it doesn't work
+    xrandr --output VNC-0 --mode 1920x1080 || true
+  fi
+  # Start XFCE with display settings awareness
+  startxfce4 &
+else
+  echo "XFCE not found, starting xterm"
+  xterm &
+fi
+
+# Keep the script running
+exec tail -f /dev/null

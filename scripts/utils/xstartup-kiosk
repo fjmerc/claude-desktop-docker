@@ -1,0 +1,55 @@
+#!/bin/bash
+# Kiosk-mode VNC session: openbox + Claude only, no XFCE.
+#
+# Selected by startup.sh when KIOSK_MODE=true. Mirrors the relevant pieces
+# of the regular xstartup (D-Bus setup, .Xauthority, clipboard sync) but
+# replaces the XFCE session with a minimal openbox session that runs Claude
+# fullscreen and bound Super+Space to relaunch.
+
+export DISPLAY=:1
+unset SESSION_MANAGER
+
+touch "$HOME/.Xauthority"
+chmod 600 "$HOME/.Xauthority"
+
+# D-Bus + XDG environment variables
+if [ -f /scripts/utils/dbus-setup.sh ]; then
+  source /scripts/utils/dbus-setup.sh
+fi
+
+# Solid dark background (Catppuccin Mocha base) instead of openbox's default
+# stipple — looks intentional, matches Claude's UI.
+if command -v xsetroot >/dev/null; then
+  xsetroot -solid '#1e1e2e'
+fi
+
+# Clipboard sync between host and container, same as the XFCE session.
+# vncconfig bridges the VNC RFB clipboard channel to the X CLIPBOARD selection;
+# autocutsel keeps PRIMARY and CLIPBOARD in sync so apps that read either pick
+# up pastes from the browser/native VNC client.
+vncconfig -nowin &
+if command -v autocutsel >/dev/null; then
+  autocutsel -fork -selection PRIMARY
+  autocutsel -fork -selection CLIPBOARD
+fi
+
+# Install openbox config + autostart for this session.
+mkdir -p "$HOME/.config/openbox"
+if [ -f /scripts/utils/openbox-rc.xml ]; then
+  cp -f /scripts/utils/openbox-rc.xml "$HOME/.config/openbox/rc.xml"
+fi
+cat > "$HOME/.config/openbox/autostart" <<'EOF'
+# Launch Claude Desktop on session start. The launcher script auto-detects
+# root and adds --no-sandbox, so we don't need it here.
+claude-desktop &
+EOF
+chmod +x "$HOME/.config/openbox/autostart"
+
+# Hand off to openbox. exec replaces this script's PID, which is what
+# vncserver expects for the xstartup process to keep the X session alive.
+if command -v openbox-session >/dev/null; then
+  exec openbox-session
+else
+  echo "ERROR: openbox-session not found. Either install openbox or unset KIOSK_MODE." >&2
+  exec tail -f /dev/null
+fi

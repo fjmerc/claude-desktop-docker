@@ -1,0 +1,51 @@
+services:
+  claude-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-desktop-docker:latest
+    container_name: claude-desktop
+    ports:
+      - "${VNC_PORT:-5901}:5901"   # VNC port
+      - "${NOVNC_PORT:-6080}:6080" # noVNC web interface port
+    volumes:
+      - ./claude-linux-desktop-build:/root/claude-linux-desktop-build
+      - ./scripts:/scripts
+      - app:/root/claude-app
+      - cache:/root/.cache
+      - config:/root/.config/Claude
+      - home:/root/home
+      - vnc:/root/.vnc
+      # Personal-data mounts (memory dir, MCP config, etc.) live in
+      # docker-compose.override.yml — copy docker-compose.override.yml.example
+      # to docker-compose.override.yml and customize. compose auto-merges it.
+    environment:
+      - DISPLAY=:1
+      - APP_INSTALL_DIR=/root/claude-app
+      - DEBIAN_FRONTEND=noninteractive
+      - USER=root
+      - HOME=/root
+      - XDG_RUNTIME_DIR=/tmp/xdg-runtime-dir
+      - DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session
+      # VNC password. If unset, startup.sh generates a random one on first
+      # boot and prints it to docker logs. Set to a fixed value to avoid the
+      # log scrape — but never commit a real password to this file.
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
+      # KIOSK_MODE=true swaps the XFCE panel/desktop for a minimal openbox
+      # session running just Claude — no taskbar, no file manager, just the
+      # app. Default off (full XFCE).
+      - KIOSK_MODE=${KIOSK_MODE:-}
+    privileged: true  # Required for X11
+    shm_size: 2gb    # Larger shared memory helps Electron renderers
+    restart: unless-stopped
+volumes:
+  app:
+    driver: local
+  cache:
+    driver: local
+  config:
+    driver: local
+  home:
+    driver: local
+  vnc:
+    driver: local
