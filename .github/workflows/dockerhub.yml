@@ -84,15 +84,19 @@ jobs:
           docker run -d --name smoke --privileged --shm-size 2g \
               -p 5901:5901 -p 6080:6080 \
               claude-desktop-smoke:test
-          # Wait for VNC + an Electron process to be alive (60s budget)
+          # Wait for VNC + an Electron process to be alive (60s budget).
+          # Uses bash /dev/tcp so we don't need nc/ncat installed in the image.
+          check='exec 3<>/dev/tcp/localhost/5901 2>/dev/null && exec 3<&- && pgrep -f "electron.*app.asar" >/dev/null'
           for i in $(seq 1 60); do
-              if docker exec smoke bash -c 'nc -z localhost 5901 && pgrep -f "electron.*app.asar" >/dev/null' 2>/dev/null; then
+              if docker exec smoke bash -c "$check" 2>/dev/null; then
                   echo "smoke OK after ${i}s"
                   exit 0
               fi
               sleep 1
           done
-          echo "smoke FAILED — VNC up=$(docker exec smoke nc -z localhost 5901 && echo yes || echo no), electron=$(docker exec smoke pgrep -f 'electron.*app.asar' >/dev/null && echo yes || echo no)"
+          vnc=$(docker exec smoke bash -c 'exec 3<>/dev/tcp/localhost/5901 2>/dev/null && exec 3<&- && echo yes || echo no')
+          elec=$(docker exec smoke bash -c 'pgrep -f "electron.*app.asar" >/dev/null && echo yes || echo no')
+          echo "smoke FAILED — VNC up=$vnc, electron=$elec"
           docker logs smoke | tail -100
           exit 1
 

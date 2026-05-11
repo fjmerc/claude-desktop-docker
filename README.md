@@ -15,8 +15,22 @@ and follows you across devices.
 
 ## Quick start
 
+### Run the prebuilt image from Docker Hub (fastest)
+
 ```bash
-git clone --recursive https://github.com/<your-fork>/claude-desktop-docker.git
+docker run -d --name claude-desktop \
+  --privileged --shm-size=2g \
+  -p 5901:5901 -p 6080:6080 \
+  -v claude-config:/root/.config/Claude \
+  fjmerc/claude-desktop:latest
+```
+
+Multi-arch (`linux/amd64`, `linux/arm64`). Then open `http://localhost:6080/` and check `docker logs claude-desktop` for the auto-generated VNC password.
+
+### Build from source
+
+```bash
+git clone https://github.com/fjmerc/claude-desktop-docker.git
 cd claude-desktop-docker
 
 ./claude.sh setup          # one-time: chmod and verify Docker is installed
@@ -134,18 +148,19 @@ filesystem MCP server. Same pattern works for any of the
 Two parallel Docker images, kept in sync:
 
 - **Local-dev** — `Dockerfile` + `docker-compose.yml`. Bind-mounts `scripts/`
-  and the build submodule. Fat: keeps rustup/build deps at runtime so you can
-  rebuild Claude in place via `./claude.sh build`. Used during development.
+  and the `claude-linux-desktop-build/` directory. Fat: keeps rustup/build
+  deps at runtime so you can rebuild Claude in place via `./claude.sh build`.
+  Used during development.
 
 - **Published** — `dockerhub/Dockerfile.dockerhub` +
   `dockerhub/docker-compose.dockerhub.yml`. **Multi-stage**: builder stage
   compiles Claude, runtime stage drops ~1.2 GB of build deps and ships only
   what's needed to run the app. Multi-arch (linux/amd64, linux/arm64) via CI.
 
-The submodule at `claude-linux-desktop-build/` does the actual `.exe` →
-Linux conversion: downloads `Claude-Setup-x64.exe`, extracts via 7z, repacks
-the asar, and builds a native Rust replacement for the `claude-native`
-Windows binding via napi-rs.
+The `claude-linux-desktop-build/` directory does the actual `.exe` → Linux
+conversion: downloads `Claude-Setup-x64.exe`, extracts via 7z, repacks the
+asar, and builds a native Rust replacement for the `claude-native` Windows
+binding via napi-rs.
 
 For more detail on the codebase layout, see
 [CLAUDE.md](CLAUDE.md). For multi-arch publishing, see

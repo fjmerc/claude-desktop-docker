@@ -20,13 +20,14 @@ docker run -d \
   -p 6080:6080 \
   --privileged \
   --shm-size=2g \
-  claudedesktop/claude-desktop:latest
+  fjmerc/claude-desktop:latest
 
 # Access via web browser
 # Open http://localhost:6080 in your browser
 
-# Or access via VNC client
-# Connect to localhost:5901 (password: claude_desktop)
+# Or access via VNC client at localhost:5901
+# First run generates a random VNC password — check `docker logs claude-desktop`.
+# To pin a password, set VNC_PASSWORD in the container environment.
 ```
 
 ## Using Docker Compose
@@ -35,7 +36,7 @@ docker run -d \
 version: '3'
 services:
   claude-desktop:
-    image: claudedesktop/claude-desktop:latest
+    image: fjmerc/claude-desktop:latest
     container_name: claude-desktop
     ports:
       - "5901:5901"  # VNC port
@@ -81,7 +82,7 @@ docker-compose up -d
 
 - `latest`: Latest stable build
 - `0.9.2`: Specific version (matches Claude Desktop version)
-- `0.7`: Major.minor version
+- `0.9`: Major.minor version
 
 ## Architectures
 
@@ -108,12 +109,12 @@ docker exec -it claude-desktop bash -c "cd /root/claude-app/bin && ./claude-desk
 
 ## Building from Source
 
-This image is built from the [Claude Desktop Docker](https://github.com/yourusername/claude-desktop-docker) project.
+This image is built from the [Claude Desktop Docker](https://github.com/fjmerc/claude-desktop-docker) project.
 
 To build it yourself:
 
 ```bash
-git clone https://github.com/yourusername/claude-desktop-docker.git
+git clone https://github.com/fjmerc/claude-desktop-docker.git
 cd claude-desktop-docker
 ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64
 ```
