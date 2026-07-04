@@ -14,10 +14,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Configuration
 CLAUDE_VERSION="0.14.10"
 CLAUDE_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
-# Pinned hash of the upstream installer for v0.14.10 (last-modified 2025-10-29).
-# build-module.sh verifies this before extraction. To bump CLAUDE_VERSION,
-# update the URL if needed, run a build with CLAUDE_SHA256= unset to print
-# the new hash, and replace this constant.
+# Pinned hash of the upstream installer for the CLAUDE_VERSION above.
+# build-module.sh verifies this before extraction. Bumps are automated by the
+# weekly upstream-version-check workflow; to bump by hand run
+# scripts/utils/bump-claude-version.sh <version> <sha256>.
 CLAUDE_SHA256="4a7fe5bcc95f29dedbfeeb45bc2c6b916343253ba0e0e392038968f5857c6aa9"
 
 # Allow overriding build directory via environment variable

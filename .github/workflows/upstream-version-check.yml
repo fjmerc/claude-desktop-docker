@@ -1,22 +1,125 @@
 name: Upstream version check
 
-# Fails loudly when Anthropic publishes a Claude Desktop version newer than
-# the CLAUDE_VERSION pinned in claude-linux-desktop-build/build-claude.sh.
-# Without this, the published Docker image goes quietly stale: the installer
-# URL is unversioned, so builds keep "working" while shipping a version that
-# no longer matches the image tag.
+# Detects when Anthropic publishes a Claude Desktop version newer than the
+# CLAUDE_VERSION pinned in claude-linux-desktop-build/build-claude.sh, and
+# bumps it automatically:
+#
+#   1. compute the SHA256 of the new (unversioned) installer
+#   2. rewrite the version + hash pins via scripts/utils/bump-claude-version.sh
+#   3. build an amd64 candidate image and run the boot smoke test against it
+#   4. open a PR with the bump (branch auto-bump/claude-<version>)
+#
+# Merging that PR triggers publish-on-bump-merge.yml, which tags v<version>
+# and dispatches the Docker Hub multi-arch publish. The PR merge is the human
+# gate — nothing is published without it.
+#
+# If any bump step fails (installer moved mid-run, build broke, smoke test
+# red), the workflow fails loudly, preserving the original alerting behavior.
+#
+# Requires the repo setting: Settings → Actions → General →
+# "Allow GitHub Actions to create and approve pull requests".
 
 on:
   schedule:
     - cron: '17 6 * * 1'   # weekly, Monday 06:17 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  check:
+  check-and-bump:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Compare pinned CLAUDE_VERSION with upstream RELEASES
-        run: bash scripts/utils/check-upstream-version.sh
+        id: drift
+        run: |
+          PINNED=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          UPSTREAM=$(bash scripts/utils/check-upstream-version.sh --upstream-only)
+          echo "pinned:   $PINNED"
+          echo "upstream: $UPSTREAM"
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
+          if [ "$PINNED" = "$UPSTREAM" ]; then
+            echo "OK: pinned version matches upstream"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upstream moved — starting auto-bump"
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download new installer and compute SHA256
+        if: steps.drift.outputs.bump == 'true'
+        id: sha
+        run: |
+          URL=$(sed -nE 's/^CLAUDE_URL="([^"]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          curl -fsSL -o /tmp/Claude-Setup-x64.exe "$URL"
+          SHA=$(sha256sum /tmp/Claude-Setup-x64.exe | cut -d' ' -f1)
+          # The .exe and RELEASES are separate GCS objects Anthropic overwrites
+          # in place; re-check RELEASES so we don't pin a hash under the wrong
+          # version label if upstream moved between the two fetches.
+          RECHECK=$(bash scripts/utils/check-upstream-version.sh --upstream-only)
+          if [ "$RECHECK" != "${{ steps.drift.outputs.upstream }}" ]; then
+            echo "ERROR: upstream moved mid-run (${{ steps.drift.outputs.upstream }} -> $RECHECK); will retry on next scheduled run" >&2
+            exit 1
+          fi
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Bump pinned version and hash
+        if: steps.drift.outputs.bump == 'true'
+        run: bash scripts/utils/bump-claude-version.sh "${{ steps.drift.outputs.upstream }}" "${{ steps.sha.outputs.sha256 }}"
+
+      - name: Set up Docker Buildx
+        if: steps.drift.outputs.bump == 'true'
+        uses: docker/setup-buildx-action@v2
+        with:
+          install: true
+
+      - name: Login to Docker Hub (for build cache)
+        if: steps.drift.outputs.bump == 'true'
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build candidate image (amd64)
+        if: steps.drift.outputs.bump == 'true'
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./dockerhub/Dockerfile.dockerhub
+          platforms: linux/amd64
+          load: true
+          tags: claude-desktop-smoke:test
+          build-args: |
+            VERSION=${{ steps.drift.outputs.upstream }}
+            NODE_VERSION=22.x
+          cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
+
+      - name: Smoke test the candidate image
+        if: steps.drift.outputs.bump == 'true'
+        run: bash scripts/utils/smoke-test-image.sh claude-desktop-smoke:test
+
+      - name: Open bump PR
+        if: steps.drift.outputs.bump == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: auto-bump/claude-${{ steps.drift.outputs.upstream }}
+          delete-branch: true
+          commit-message: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
+          title: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
+          body: |
+            Anthropic moved the unversioned installer: RELEASES now advertises
+            `${{ steps.drift.outputs.upstream }}`, this repo pinned `${{ steps.drift.outputs.pinned }}`.
+
+            - `CLAUDE_VERSION` and every other hardcoded version string bumped `${{ steps.drift.outputs.pinned }}` -> `${{ steps.drift.outputs.upstream }}`
+            - `CLAUDE_SHA256` re-pinned to the new installer: `${{ steps.sha.outputs.sha256 }}`
+            - An amd64 image built from this change passed the boot smoke test in the workflow run that opened this PR
+
+            **Merging this PR publishes automatically:** `publish-on-bump-merge.yml`
+            tags `v${{ steps.drift.outputs.upstream }}` and dispatches the Docker Hub
+            multi-arch publish (which re-verifies the pin and re-runs the smoke test).

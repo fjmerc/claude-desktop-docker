@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g., 0.14.10)'
-        required: true
-        default: '0.14.10'
+        description: 'Version to build (defaults to the CLAUDE_VERSION pinned in build-claude.sh)'
+        required: false
+        default: ''
       platforms:
         description: 'Platforms to build for (comma-separated)'
         required: true
@@ -38,6 +38,30 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_PLATFORMS: ${{ github.event.inputs.platforms }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # Single source of truth so auto-bump PRs never touch workflow files
+            VERSION=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "ERROR: could not determine version" >&2
+            exit 1
+          fi
+          PLATFORMS="${INPUT_PLATFORMS:-linux/amd64,linux/arm64}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "PLATFORMS=$PLATFORMS" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "majorminor=${VERSION%.*}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v4
@@ -46,29 +70,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ steps.version.outputs.majorminor }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
-            echo "PLATFORMS=${{ github.event.inputs.platforms }}" >> $GITHUB_ENV
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-            echo "VERSION=$VERSION" >> $GITHUB_ENV
-            echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
-          else
-            echo "VERSION=0.14.10" >> $GITHUB_ENV
-            echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
-          fi
 
       - name: Verify pinned version matches upstream
         # The installer URL is unversioned (always latest), so building while
-        # upstream has moved would publish a mislabeled image. Fail here and
-        # bump CLAUDE_VERSION in claude-linux-desktop-build/build-claude.sh.
+        # upstream has moved would publish a mislabeled image. Fail here; the
+        # weekly upstream-version-check workflow opens the bump PR that fixes it.
         run: bash scripts/utils/check-upstream-version.sh "$VERSION"
 
       - name: Build (load amd64 for smoke test)
@@ -85,31 +94,7 @@ jobs:
           cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
 
       - name: Smoke test the built image
-        run: |
-          # Catches the "Anthropic restructured their installer and the build
-          # silently produced a broken image" failure mode before we publish.
-          docker run -d --name smoke --privileged --shm-size 2g \
-              -p 5901:5901 -p 6080:6080 \
-              claude-desktop-smoke:test
-          # Wait for VNC + an Electron process to be alive (60s budget).
-          # Uses bash /dev/tcp so we don't need nc/ncat installed in the image.
-          check='exec 3<>/dev/tcp/localhost/5901 2>/dev/null && exec 3<&- && pgrep -f "electron.*app.asar" >/dev/null'
-          for i in $(seq 1 60); do
-              if docker exec smoke bash -c "$check" 2>/dev/null; then
-                  echo "smoke OK after ${i}s"
-                  exit 0
-              fi
-              sleep 1
-          done
-          vnc=$(docker exec smoke bash -c 'exec 3<>/dev/tcp/localhost/5901 2>/dev/null && exec 3<&- && echo yes || echo no')
-          elec=$(docker exec smoke bash -c 'pgrep -f "electron.*app.asar" >/dev/null && echo yes || echo no')
-          echo "smoke FAILED — VNC up=$vnc, electron=$elec"
-          docker logs smoke | tail -100
-          exit 1
-
-      - name: Tear down smoke container
-        if: always()
-        run: docker rm -f smoke 2>/dev/null || true
+        run: bash scripts/utils/smoke-test-image.sh claude-desktop-smoke:test
 
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v4

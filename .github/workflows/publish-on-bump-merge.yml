@@ -1,0 +1,48 @@
+name: Publish on auto-bump merge
+
+# Completes the auto-bump loop started by upstream-version-check.yml: when an
+# auto-bump/* PR is merged, tag the merge commit v<version> and dispatch the
+# Docker Hub publish workflow.
+#
+# The tag is pushed with GITHUB_TOKEN, which deliberately does NOT trigger
+# the tag-based publish path (GitHub suppresses workflow runs for refs pushed
+# by the token, to prevent recursion) — the explicit workflow_dispatch below
+# is what publishes. The tag still exists for humans and for release history.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-publish:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'auto-bump/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Tag the release
+        run: |
+          VERSION=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: could not read CLAUDE_VERSION from build-claude.sh" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if git ls-remote --exit-code --tags origin "v$VERSION" >/dev/null 2>&1; then
+            echo "tag v$VERSION already exists; skipping tag push"
+          else
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+          fi
+
+      - name: Dispatch Docker Hub publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run dockerhub.yml --ref "${{ github.event.pull_request.base.ref }}" -f version="$VERSION"
