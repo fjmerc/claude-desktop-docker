@@ -41,7 +41,7 @@ The main build script for creating multi-architecture Docker images.
 
 **Options:**
 
-- `--version VER` - Set version for the build (default: 0.9.2)
+- `--version VER` - Set version for the build (default: 0.14.10)
 - `--platforms PLAT` - Comma-separated list of platforms (default: linux/amd64,linux/arm64)
 - `--repo REPO` - Docker Hub repository (default: claudedesktop/claude-desktop)
 - `--push` - Push images to Docker Hub
@@ -59,7 +59,7 @@ The main build script for creating multi-architecture Docker images.
 
 Build and push multi-architecture images to Docker Hub:
 ```bash
-./build-dockerhub-multiarch.sh --version 0.9.2 --platforms linux/amd64,linux/arm64 --push
+./build-dockerhub-multiarch.sh --version 0.14.10 --platforms linux/amd64,linux/arm64 --push
 ```
 
 Build a single architecture image for local testing:
@@ -136,7 +136,7 @@ If you encounter issues during the build process:
 The default Docker Hub repository is `claudedesktop/claude-desktop`. You can change this using the `--repo` option.
 
 Images are tagged with:
-- The specific version (e.g., `claudedesktop/claude-desktop:0.9.2`)
+- The specific version (e.g., `claudedesktop/claude-desktop:0.14.10`)
 - The `latest` tag for the most recent build
 
 ## Building from Different Machines

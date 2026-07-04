@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g., 0.9.2)'
+        description: 'Version to build (e.g., 0.14.10)'
         required: true
-        default: '0.9.2'
+        default: '0.14.10'
       platforms:
         description: 'Platforms to build for (comma-separated)'
         required: true
@@ -61,9 +61,15 @@ jobs:
             echo "VERSION=$VERSION" >> $GITHUB_ENV
             echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
           else
-            echo "VERSION=0.9.2" >> $GITHUB_ENV
+            echo "VERSION=0.14.10" >> $GITHUB_ENV
             echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
           fi
+
+      - name: Verify pinned version matches upstream
+        # The installer URL is unversioned (always latest), so building while
+        # upstream has moved would publish a mislabeled image. Fail here and
+        # bump CLAUDE_VERSION in claude-linux-desktop-build/build-claude.sh.
+        run: bash scripts/utils/check-upstream-version.sh "$VERSION"
 
       - name: Build (load amd64 for smoke test)
         uses: docker/build-push-action@v4

@@ -38,7 +38,7 @@ show_help() {
     echo "Examples:"
     echo "  ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64"
     echo "  ./claude.sh dockerhub check --verbose"
-    echo "  ./claude.sh dockerhub push --version 0.9.2"
+    echo "  ./claude.sh dockerhub push --version 0.14.10"
     echo ""
 }
 

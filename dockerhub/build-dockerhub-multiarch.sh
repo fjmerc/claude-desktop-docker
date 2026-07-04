@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 source "${SCRIPT_DIR}/dockerhub-logger.sh"
 
 # Default options
-VERSION="0.9.2"
+VERSION="0.14.10"
 PLATFORMS="linux/amd64,linux/arm64"
 DOCKER_REPO="fjmerc/claude-desktop"
 PUSH=false
@@ -47,7 +47,7 @@ show_help() {
     echo "  --help              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 --version 0.9.2 --platforms linux/amd64,linux/arm64 --push"
+    echo "  $0 --version 0.14.10 --platforms linux/amd64,linux/arm64 --push"
     echo "  $0 --platforms linux/amd64 --load --no-cache"
     echo ""
 }

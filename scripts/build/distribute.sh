@@ -5,7 +5,7 @@
 set -e  # Exit on any error
 
 # Default options
-VERSION="0.9.2"  # Match with Claude Desktop version
+VERSION="0.14.10"  # Match with Claude Desktop version
 INCLUDE_BUILD=false
 
 # Display help

@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g., 0.9.2)'
+        description: 'Version to build (e.g., 0.14.10)'
         required: true
-        default: '0.9.2'
+        default: '0.14.10'
       platforms:
         description: 'Platforms to build for (comma-separated)'
         required: true
@@ -64,7 +64,7 @@ jobs:
             echo "VERSION=$VERSION" >> $GITHUB_ENV
             echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
           else
-            echo "VERSION=0.9.2" >> $GITHUB_ENV
+            echo "VERSION=0.14.10" >> $GITHUB_ENV
             echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
           fi
 

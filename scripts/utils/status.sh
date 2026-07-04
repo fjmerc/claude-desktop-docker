@@ -60,7 +60,7 @@ Ports: {{range \$p, \$conf := .NetworkSettings.Ports}}{{if \$conf}}{{range \$i, 
                     echo -n 'Version: '
                     cat /root/claude-app/version.txt
                 else
-                    echo 'Version: 0.9.2 (Assumed)'
+                    echo 'Version: 0.14.10 (Assumed)'
                 fi
                 echo ''
                 echo 'To run Claude Desktop:'

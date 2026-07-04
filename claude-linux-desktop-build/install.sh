@@ -2,7 +2,7 @@
 # Install script for Claude Desktop
 # Run this after successfully building Claude Desktop
 
-CLAUDE_VERSION="0.9.2"
+CLAUDE_VERSION="0.14.10"
 
 # Detect architecture
 ARCH=$(uname -m)

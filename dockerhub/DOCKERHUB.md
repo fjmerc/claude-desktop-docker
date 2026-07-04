@@ -81,7 +81,7 @@ docker-compose up -d
 ## Tags
 
 - `latest`: Latest stable build
-- `0.9.2`: Specific version (matches Claude Desktop version)
+- `0.14.10`: Specific version (matches Claude Desktop version)
 - `0.9`: Major.minor version
 
 ## Architectures

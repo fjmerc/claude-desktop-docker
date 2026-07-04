@@ -22,7 +22,7 @@ cat > install.sh << EOF
 #!/bin/bash
 # Modified install script for Claude Desktop
 
-CLAUDE_VERSION="0.9.2"
+CLAUDE_VERSION="0.14.10"
 INSTALL_DIR="$APP_INSTALL_DIR"
 
 # Detect architecture

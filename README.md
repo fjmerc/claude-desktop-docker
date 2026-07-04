@@ -81,7 +81,7 @@ commands (`docker start claude-desktop`, `docker stop claude-desktop`,
 # Multi-arch publish
 ./claude.sh dockerhub check --verbose
 ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64
-./claude.sh dockerhub push --version 0.9.2
+./claude.sh dockerhub push --version 0.14.10
 ```
 
 ## Configuration via .env / docker-compose.override.yml
