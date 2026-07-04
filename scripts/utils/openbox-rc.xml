@@ -17,11 +17,35 @@
   </placement>
 
   <keyboard>
-    <!-- Super+Space: relaunch Claude (the patched launcher auto-detects
-         root and adds --no-sandbox, so a bare command is fine). -->
-    <keybind key="W-space">
+    <!-- Super+C: relaunch Claude. Hard-won details, do not "simplify":
+         * The key must be a letter. "space" bound with any modifier never
+           fires on this Xvnc/XKB setup (verified with xdotool tracers:
+           C-A-y and C-A-c fire, C-A-space and W-space never do).
+         * The command is fully explicit: openbox's environment only has
+           DISPLAY, and the launcher in the claude_app volume may predate
+           root/sandbox auto-detection (the volume shadows newer image
+           content), so it needs both ELECTRON_* vars and the sandbox flag.
+         * Don't shorten it to a bare "claude-desktop":
+           /usr/local/bin/claude-desktop is a copied (not symlinked)
+           launcher that resolves its app dir relative to itself and dies
+           looking for /usr/local/lib/claude-desktop/app.asar.
+         * Never write a literal double hyphen inside an XML comment;
+           openbox rejects the whole file and silently loses every keybind. -->
+    <keybind key="W-c">
       <action name="Execute">
-        <command>claude-desktop</command>
+        <command>env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_NO_ASAR=1 /root/claude-app/bin/claude-desktop --no-sandbox</command>
+        <startupnotify>
+          <enabled>yes</enabled>
+        </startupnotify>
+      </action>
+    </keybind>
+
+    <!-- Ctrl+Alt+C: same as above. This is the binding to document for
+         browser/noVNC users: host OSes swallow most Super-key combos
+         (Win+key on Windows, Cmd+key on macOS) before noVNC sees them. -->
+    <keybind key="C-A-c">
+      <action name="Execute">
+        <command>env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_NO_ASAR=1 /root/claude-app/bin/claude-desktop --no-sandbox</command>
         <startupnotify>
           <enabled>yes</enabled>
         </startupnotify>

@@ -101,7 +101,7 @@ Both are gitignored. Variables you'll likely set:
 | `VNC_PASSWORD` | Pin a password instead of the auto-generated random one | empty (random) |
 | `VNC_PORT` | Host port mapped to container's 5901 | `5901` |
 | `NOVNC_PORT` | Host port mapped to container's 6080 | `6080` |
-| `KIOSK_MODE` | `true` = minimal openbox + Claude only (no XFCE panel/desktop). `Super+Space` relaunches if you close it. | unset (full XFCE) |
+| `KIOSK_MODE` | `true` = minimal openbox + Claude only (no XFCE panel/desktop). `Ctrl+Alt+C` relaunches Claude if you close it (`Super+C` also works from native VNC clients; browsers' host OS usually swallows Super-key combos). | unset (full XFCE) |
 | `CLAUDE_AUTO_RESTART` | `0`/`false` disables the watchdog that relaunches Claude whenever it exits (quit, crash, in-app update). Gives up after 5 crash-loop exits. No effect in kiosk mode. | on |
 
 Note: clicking the window's X hides Claude to the tray rather than quitting it,
