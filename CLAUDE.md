@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Runs Anthropic's Claude **Desktop** (the Electron app, distributed as a Windows `.exe`) inside a headless Ubuntu 22.04 container. The container repackages the Windows build into a Linux Electron app at runtime and exposes the GUI over VNC (`:5901`, password `claude_desktop`) and noVNC (`http://localhost:6080/`). This is unrelated to the Claude Code CLI or the Anthropic API — do not propose API/SDK refactors.
+Runs Anthropic's Claude **Desktop** (the Electron app, distributed as a Windows `.exe`) inside a headless Ubuntu 22.04 container. The container repackages the Windows build into a Linux Electron app at runtime and exposes the GUI over VNC (`:5901`) and noVNC (`http://localhost:6080/`); the VNC password comes from the `VNC_PASSWORD` env var, or is randomly generated and printed to the container logs on first boot. This is unrelated to the Claude Code CLI or the Anthropic API — do not propose API/SDK refactors.
 
 ## Two parallel build paths — keep them in sync
 
@@ -15,9 +15,9 @@ There are two Dockerfiles with overlapping but distinct purposes. Changes to ins
 
 The CI workflow `.github/workflows/dockerhub.yml` triggers on pushes to `dockerhub-production` (the current branch) or `v*` tags and pushes to `fjmerc/claude-desktop` on Docker Hub. The interactive `dockerhub/menu.sh`, `test-dockerhub-image.sh`, and `build-dockerhub-multiarch.sh` all default to the same repo.
 
-## Submodule
+## The build scripts directory
 
-`claude-linux-desktop-build/` is a **git submodule** (see `.gitmodules`, hosted on a private Gitea). It contains `build-claude.sh`, `install.sh`, `build-module.sh`, `packaging.sh`, `dependencies.sh`, `utils.sh`, `rust-code.rs`. These do the actual `.exe` → Linux conversion (download Claude-Setup-x64.exe, extract via 7z, repack the asar, build a native Rust module via napi-rs, generate a `.desktop` entry and launcher). When you `git clone` fresh you must `--recursive` or run `git submodule update --init`. `CLAUDE_VERSION` is hard-coded in `claude-linux-desktop-build/build-claude.sh` (currently `0.9.2`); the dockerhub Dockerfile passes it via the `VERSION` build-arg.
+`claude-linux-desktop-build/` is vendored directly in this repo (it began life as a git submodule on a private Gitea, but the files are now tracked here — there is no `.gitmodules`). It contains `build-claude.sh`, `install.sh`, `build-module.sh`, `packaging.sh`, `dependencies.sh`, `utils.sh`, `rust-code.rs`. These do the actual `.exe` → Linux conversion (download Claude-Setup-x64.exe, extract via 7z, repack the asar, build a native Rust module via napi-rs, generate a `.desktop` entry and launcher). `CLAUDE_VERSION` is hard-coded in `claude-linux-desktop-build/build-claude.sh` (currently `0.14.10`); the dockerhub Dockerfile passes it via the `VERSION` build-arg.
 
 ## Command dispatch architecture
 
@@ -54,7 +54,7 @@ The `dockerhub` subcommand is a parallel dispatcher (`dockerhub/dockerhub-main.s
 # Multi-arch publish (separate dispatcher)
 ./claude.sh dockerhub check --verbose
 ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64
-./claude.sh dockerhub push --version 0.9.2
+./claude.sh dockerhub push --version 0.14.10
 ./claude.sh dockerhub menu         # interactive
 ```
 
@@ -77,5 +77,5 @@ There is no test suite, linter, or package manager in this repo — it is shell 
 ## Things that look like bugs but aren't
 
 - `docker-compose.yml` is in `.gitignore` — but it *is* tracked. The ignore entry is there so users editing it locally (e.g., changing the `/home/fray/...` bind mount) don't accidentally commit personal paths. Use `git update-index --skip-worktree` semantics mentally; don't "fix" the gitignore.
-- VNC server runs as root with a fixed password (`claude_desktop`) baked into the image. This is intentional for a single-user dev container; do not propose hardening unless asked.
-- The Windows `.exe` URL in `build-claude.sh` points at a Google Cloud Storage bucket Anthropic publishes to. There's no checksum pin (`CLAUDE_SHA256=""`); upstream version bumps require editing `CLAUDE_VERSION` and re-running.
+- VNC server runs as root. This is intentional for a single-user dev container; do not propose hardening unless asked.
+- The Windows `.exe` URL in `build-claude.sh` points at an **unversioned** Google Cloud Storage object Anthropic overwrites in place — the download is always "latest", and `CLAUDE_VERSION` is only a label. `CLAUDE_SHA256` pins the installer hash; when upstream moves, `scripts/utils/check-upstream-version.sh` (run in CI before publish and weekly via `.github/workflows/upstream-version-check.yml`) fails until you bump `CLAUDE_VERSION` and the hash in `build-claude.sh`.
