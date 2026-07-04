@@ -81,6 +81,14 @@ download_and_extract() {
     mkdir -p "$WORK_DIR"
     cd "$WORK_DIR"
     
+    # A cached installer from an earlier build may predate the current pin;
+    # re-download instead of failing the build on it.
+    if [ -f "Claude-Setup-x64.exe" ] && [ -n "${CLAUDE_SHA256:-}" ] && \
+       ! echo "${CLAUDE_SHA256}  Claude-Setup-x64.exe" | sha256sum -c - >/dev/null 2>&1; then
+        echo "Cached installer does not match pinned SHA256 — re-downloading."
+        rm -f "Claude-Setup-x64.exe"
+    fi
+
     if [ ! -f "Claude-Setup-x64.exe" ]; then
         wget "$CLAUDE_URL" -O "Claude-Setup-x64.exe" || {
             echo "Failed to download Claude Desktop"
@@ -104,6 +112,12 @@ download_and_extract() {
         echo "  Computed hash: $(sha256sum Claude-Setup-x64.exe | cut -d' ' -f1)"
         echo "  Pin this value in build-claude.sh to enforce on subsequent builds."
     fi
+
+    # WORK_DIR persists on the cache volume across builds; leftover nupkgs
+    # and extracted app files from an older version would otherwise be
+    # picked up below instead of the freshly downloaded ones.
+    rm -f ./*.nupkg
+    rm -rf lib
 
     echo "Extracting..."
     7z x -y "Claude-Setup-x64.exe" || {
