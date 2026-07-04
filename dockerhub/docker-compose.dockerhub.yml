@@ -23,6 +23,8 @@ services:
       - VNC_PASSWORD=${VNC_PASSWORD:-}
       # KIOSK_MODE=true: openbox + Claude only (no XFCE panel/desktop).
       - KIOSK_MODE=${KIOSK_MODE:-}
+      # CLAUDE_AUTO_RESTART=0 disables the relaunch-on-exit watchdog.
+      - CLAUDE_AUTO_RESTART=${CLAUDE_AUTO_RESTART:-}
     privileged: true
     shm_size: 2gb
     restart: unless-stopped

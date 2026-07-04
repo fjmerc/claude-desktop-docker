@@ -3,8 +3,15 @@ set -e
 
 # Forward SIGTERM/SIGINT to background children (Claude Desktop, noVNC, VNC)
 # so `docker stop` doesn't fall through to a 10s SIGKILL with no chance to flush.
+# The shutdown flag file tells the auto-restart supervisor this exit is
+# intentional; the pid file tracks the current app PID across relaunches
+# (the supervisor's children are invisible to this shell's $CLAUDE_PID).
 CLAUDE_PID=""
+SUPERVISOR_PID=""
 shutdown() {
+    touch /tmp/claude-shutdown
+    [ -n "$SUPERVISOR_PID" ] && kill -TERM "$SUPERVISOR_PID" 2>/dev/null || true
+    [ -f /tmp/claude-desktop.pid ] && kill -TERM "$(cat /tmp/claude-desktop.pid)" 2>/dev/null || true
     [ -n "$CLAUDE_PID" ] && kill -TERM "$CLAUDE_PID" 2>/dev/null || true
     vncserver -kill :1 >/dev/null 2>&1 || true
     exit 0
@@ -79,14 +86,17 @@ vncserver -kill :1 >/dev/null 2>&1 || true
 # whose owning processes are gone. `docker-compose up` recreates the
 # container and avoids this; `docker restart` does not.
 rm -f /tmp/.X*-lock /tmp/.X11-unix/X* /tmp/dbus-session.info 2>/dev/null || true
+rm -f /tmp/claude-desktop.pid /tmp/claude-shutdown 2>/dev/null || true
 rm -rf /tmp/dbus-* 2>/dev/null || true
 
 # Pick the X session based on KIOSK_MODE. Default = full XFCE.
 # Truthy values: true / 1 / yes (case-insensitive).
+KIOSK_ACTIVE=0
 case "${KIOSK_MODE:-}" in
   [Tt]rue|1|[Yy]es|[Oo]n)
     if [ -f /scripts/utils/xstartup-kiosk ]; then
       cp -f /scripts/utils/xstartup-kiosk /root/.vnc/xstartup
+      KIOSK_ACTIVE=1
       echo "KIOSK_MODE: openbox + Claude (no XFCE panel/desktop)"
     else
       echo "KIOSK_MODE requested but /scripts/utils/xstartup-kiosk missing — falling back to XFCE"
@@ -204,41 +214,90 @@ if [ -d "/root/claude-app" ] && [ -x "/root/claude-app/bin/claude-desktop" ]; th
   export ELECTRON_NO_ASAR=1
   export ELECTRON_NO_ATTACH_CONSOLE=1
   
-  # Change to the claude-app bin directory
-  cd /root/claude-app/bin
-  
-  # Attempt to start Claude Desktop. Sleep before probing so the fork has time
-  # to actually exec/exit; the previous immediate ps check was a no-op race.
-  echo "Launching claude-desktop application..."
-  ./claude-desktop --no-sandbox &
-  CLAUDE_PID=$!
-  sleep 2
-
-  # Maximize the Claude window once it appears. Electron's first-run window is
-  # small and not centered well in 1920x1080; users expect full-screen on a
-  # VNC/noVNC display. Background loop, exits as soon as it succeeds or after
-  # ~30s of waiting (whichever comes first).
-  ( for i in $(seq 1 30); do
-      if DISPLAY=:1 wmctrl -l 2>/dev/null | awk '{print $4}' | grep -qx Claude; then
-        DISPLAY=:1 wmctrl -r Claude -b add,maximized_vert,maximized_horz 2>/dev/null && break
+  # Launches one app instance, with the electron fallback if the primary
+  # binary dies within 2s (the sleep gives the fork time to actually
+  # exec/exit; an immediate ps check would be a no-op race). Also spawns a
+  # loop that maximizes the window once it appears: Electron's first-run
+  # window is small and not centered well in 1920x1080, users expect
+  # full-screen on a VNC/noVNC display.
+  launch_claude() {
+    cd /root/claude-app/bin
+    echo "Launching claude-desktop application..."
+    ./claude-desktop --no-sandbox &
+    CLAUDE_PID=$!
+    sleep 2
+    if ! ps -p "$CLAUDE_PID" > /dev/null; then
+      echo "Failed to start Claude Desktop with bin/claude-desktop, trying alternative method..."
+      cd /root/claude-app
+      if [ -f "electron" ]; then
+        ./electron --no-sandbox . &
+      else
+        electron --no-sandbox . &
       fi
-      sleep 1
-    done ) &
+      CLAUDE_PID=$!
+    fi
+    echo "$CLAUDE_PID" > /tmp/claude-desktop.pid
 
-  if ps -p $CLAUDE_PID > /dev/null; then
-    echo "Claude Desktop started with PID $CLAUDE_PID"
+    ( for i in $(seq 1 30); do
+        if DISPLAY=:1 wmctrl -l 2>/dev/null | awk '{print $4}' | grep -qx Claude; then
+          DISPLAY=:1 wmctrl -r Claude -b add,maximized_vert,maximized_horz 2>/dev/null && break
+        fi
+        sleep 1
+      done ) &
+  }
+
+  case "${CLAUDE_AUTO_RESTART:-on}" in
+    [Ff]alse|0|[Nn]o|[Oo]ff) AUTO_RESTART=0 ;;
+    *) AUTO_RESTART=1 ;;
+  esac
+
+  if [ "$AUTO_RESTART" = "1" ] && [ "$KIOSK_ACTIVE" = "0" ]; then
+    # Supervise the app: relaunch whenever it exits (window closed, crash,
+    # in-app update) so the VNC session is never left with no way to reopen
+    # it. Opt out with CLAUDE_AUTO_RESTART=0. Kiosk mode skips this — its
+    # openbox session rebinds Super+Space to relaunch, and its autostart
+    # launches claude-desktop itself, which would fight the supervisor
+    # through Electron's single-instance lock.
+    (
+      set +e   # wait returns the app's exit code; that must not kill the loop
+      rapid_exits=0
+      while :; do
+        launch_claude
+        echo "Claude Desktop started with PID $CLAUDE_PID (auto-restart on; CLAUDE_AUTO_RESTART=0 to disable)"
+        started=$(date +%s)
+        wait "$CLAUDE_PID"
+        rc=$?
+        [ -f /tmp/claude-shutdown ] && exit 0
+        # The supervised PID can die while its Electron children survive
+        # (orphaned renderer tree, or a partial crash). Relaunching then just
+        # hits Electron's single-instance lock and exits immediately, spinning
+        # the loop. Wait for the whole tree to be gone before relaunching.
+        while pgrep -f 'electron.*app.asar' >/dev/null 2>&1; do
+          [ -f /tmp/claude-shutdown ] && exit 0
+          sleep 5
+        done
+        ran=$(( $(date +%s) - started ))
+        if [ "$ran" -lt 30 ]; then
+          rapid_exits=$((rapid_exits + 1))
+        else
+          rapid_exits=0
+        fi
+        if [ "$rapid_exits" -ge 5 ]; then
+          echo "Claude Desktop exited $rapid_exits times in under 30s each — crash loop, giving up."
+          echo "Relaunch manually: docker exec -d -e DISPLAY=:1 <container> /root/claude-app/bin/claude-desktop --no-sandbox"
+          exit 1
+        fi
+        echo "Claude Desktop exited (code $rc) after ${ran}s — relaunching in 5s..."
+        sleep 5
+      done
+    ) &
+    SUPERVISOR_PID=$!
   else
-    echo "Failed to start Claude Desktop with bin/claude-desktop, trying alternative method..."
-    # Alternative startup method
-    cd /root/claude-app
-    if [ -f "electron" ]; then
-      ./electron --no-sandbox . &
-      CLAUDE_PID=$!
-      echo "Started Claude Desktop with ./electron (PID $CLAUDE_PID)"
+    launch_claude
+    if [ "$KIOSK_ACTIVE" = "1" ]; then
+      echo "Claude Desktop started with PID $CLAUDE_PID (kiosk mode: Super+Space relaunches, watchdog off)"
     else
-      electron --no-sandbox . &
-      CLAUDE_PID=$!
-      echo "Started Claude Desktop with electron command (PID $CLAUDE_PID)"
+      echo "Claude Desktop started with PID $CLAUDE_PID (auto-restart off)"
     fi
   fi
 else

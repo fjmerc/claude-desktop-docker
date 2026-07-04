@@ -102,6 +102,20 @@ Both are gitignored. Variables you'll likely set:
 | `VNC_PORT` | Host port mapped to container's 5901 | `5901` |
 | `NOVNC_PORT` | Host port mapped to container's 6080 | `6080` |
 | `KIOSK_MODE` | `true` = minimal openbox + Claude only (no XFCE panel/desktop). `Super+Space` relaunches if you close it. | unset (full XFCE) |
+| `CLAUDE_AUTO_RESTART` | `0`/`false` disables the watchdog that relaunches Claude whenever it exits (quit, crash, in-app update). Gives up after 5 crash-loop exits. No effect in kiosk mode. | on |
+
+Note: clicking the window's X hides Claude to the tray rather than quitting it,
+so the watchdog (correctly) does nothing. To bring the window back without
+restarting anything:
+
+```bash
+docker exec -d -e DISPLAY=:1 -e ELECTRON_DISABLE_SANDBOX=1 -e ELECTRON_NO_ASAR=1 \
+    claude-desktop /root/claude-app/bin/claude-desktop --no-sandbox
+```
+
+Electron's single-instance lock hands the invocation to the running app, which
+re-shows its window. The same command also works after a full quit if the
+watchdog is disabled or has given up.
 
 Bind mounts (only via the override file) for the most common personal-data
 patterns: a host directory exposed to Claude (mounted at `/data` inside the
