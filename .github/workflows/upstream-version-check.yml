@@ -47,9 +47,14 @@ jobs:
           if [ "$PINNED" = "$UPSTREAM" ]; then
             echo "OK: pinned version matches upstream"
             echo "bump=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "upstream moved — starting auto-bump"
+          elif [ "$(printf '%s\n' "$PINNED" "$UPSTREAM" | sort -V | tail -1)" = "$UPSTREAM" ]; then
+            echo "upstream moved forward — starting auto-bump"
             echo "bump=true" >> "$GITHUB_OUTPUT"
+          else
+            # A version going BACKWARD is not a release — it's a rollback or a
+            # tampered bucket. Never auto-bump toward it; a human must look.
+            echo "ERROR: upstream ($UPSTREAM) is OLDER than the pin ($PINNED); refusing to auto-bump." >&2
+            exit 1
           fi
 
       - name: Download new installer and compute SHA256
