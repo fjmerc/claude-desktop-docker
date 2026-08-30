@@ -2,7 +2,10 @@
 # Multi-architecture build script for Claude Desktop Docker
 # This script builds and pushes Docker images for multiple architectures
 
-set -e  # Exit on any error
+# pipefail matters: the verbose build path pipes buildx through tee, and
+# without it a failed build reports tee's exit 0 and the script announces
+# "Images pushed to Docker Hub" with nothing pushed.
+set -eo pipefail
 
 # Source the logger
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
