@@ -4,7 +4,8 @@ name: Upstream version check
 # CLAUDE_VERSION pinned in claude-linux-desktop-build/build-claude.sh, and
 # bumps it automatically:
 #
-#   1. compute the SHA256 of the new (unversioned) installer
+#   1. download the new versioned nupkg, cross-check it against the SHA1
+#      upstream publishes in RELEASES, and compute its SHA256
 #   2. rewrite the version + hash pins via scripts/utils/bump-claude-version.sh
 #   3. build an amd64 candidate image and run the boot smoke test against it
 #   4. open a PR with the bump (branch auto-bump/claude-<version>)
@@ -61,15 +62,20 @@ jobs:
         if: steps.drift.outputs.bump == 'true'
         id: sha
         run: |
+          UPSTREAM="${{ steps.drift.outputs.upstream }}"
+          # CLAUDE_URL embeds ${CLAUDE_VERSION}; expand it with the upstream
+          # version to address the nupkg of the release we are bumping to.
           URL=$(sed -nE 's/^CLAUDE_URL="([^"]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
-          curl -fsSL -o /tmp/Claude-Setup-x64.exe "$URL"
-          SHA=$(sha256sum /tmp/Claude-Setup-x64.exe | cut -d' ' -f1)
-          # The .exe and RELEASES are separate GCS objects Anthropic overwrites
-          # in place; re-check RELEASES so we don't pin a hash under the wrong
-          # version label if upstream moved between the two fetches.
-          RECHECK=$(bash scripts/utils/check-upstream-version.sh --upstream-only)
-          if [ "$RECHECK" != "${{ steps.drift.outputs.upstream }}" ]; then
-            echo "ERROR: upstream moved mid-run (${{ steps.drift.outputs.upstream }} -> $RECHECK); will retry on next scheduled run" >&2
+          URL="${URL//\$\{CLAUDE_VERSION\}/$UPSTREAM}"
+          curl -fsSL -o /tmp/claude.nupkg "$URL"
+          SHA=$(sha256sum /tmp/claude.nupkg | cut -d' ' -f1)
+          # Cross-check the download against the SHA1 upstream publishes in
+          # RELEASES, so we never pin the hash of a corrupt/tampered object.
+          EXPECTED_SHA1=$(curl -fsSL "https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/RELEASES" \
+            | tr -d '\r' | awk -v f="AnthropicClaude-${UPSTREAM}-full.nupkg" '$2 == f { print tolower($1) }')
+          ACTUAL_SHA1=$(sha1sum /tmp/claude.nupkg | cut -d' ' -f1)
+          if [ -z "$EXPECTED_SHA1" ] || [ "$EXPECTED_SHA1" != "$ACTUAL_SHA1" ]; then
+            echo "ERROR: SHA1 mismatch vs RELEASES manifest (expected '$EXPECTED_SHA1', got '$ACTUAL_SHA1')" >&2
             exit 1
           fi
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
@@ -118,11 +124,11 @@ jobs:
           commit-message: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
           title: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
           body: |
-            Anthropic moved the unversioned installer: RELEASES now advertises
-            `${{ steps.drift.outputs.upstream }}`, this repo pinned `${{ steps.drift.outputs.pinned }}`.
+            Upstream RELEASES now advertises `${{ steps.drift.outputs.upstream }}`,
+            this repo pinned `${{ steps.drift.outputs.pinned }}`.
 
             - `CLAUDE_VERSION` and every other hardcoded version string bumped `${{ steps.drift.outputs.pinned }}` -> `${{ steps.drift.outputs.upstream }}`
-            - `CLAUDE_SHA256` re-pinned to the new installer: `${{ steps.sha.outputs.sha256 }}`
+            - `CLAUDE_SHA256` re-pinned to the new nupkg (SHA1 cross-checked against RELEASES): `${{ steps.sha.outputs.sha256 }}`
             - An amd64 image built from this change passed the boot smoke test in the workflow run that opened this PR
 
             **Merging this PR publishes automatically:** `publish-on-bump-merge.yml`

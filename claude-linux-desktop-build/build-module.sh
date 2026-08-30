@@ -81,16 +81,18 @@ download_and_extract() {
     mkdir -p "$WORK_DIR"
     cd "$WORK_DIR"
     
-    # A cached installer from an earlier build may predate the current pin;
+    NUPKG_FILE="AnthropicClaude-${CLAUDE_VERSION}-full.nupkg"
+
+    # A cached nupkg from an earlier build may be corrupt or predate a re-pin;
     # re-download instead of failing the build on it.
-    if [ -f "Claude-Setup-x64.exe" ] && [ -n "${CLAUDE_SHA256:-}" ] && \
-       ! echo "${CLAUDE_SHA256}  Claude-Setup-x64.exe" | sha256sum -c - >/dev/null 2>&1; then
-        echo "Cached installer does not match pinned SHA256 — re-downloading."
-        rm -f "Claude-Setup-x64.exe"
+    if [ -f "$NUPKG_FILE" ] && [ -n "${CLAUDE_SHA256:-}" ] && \
+       ! echo "${CLAUDE_SHA256}  ${NUPKG_FILE}" | sha256sum -c - >/dev/null 2>&1; then
+        echo "Cached ${NUPKG_FILE} does not match pinned SHA256 — re-downloading."
+        rm -f "$NUPKG_FILE"
     fi
 
-    if [ ! -f "Claude-Setup-x64.exe" ]; then
-        wget "$CLAUDE_URL" -O "Claude-Setup-x64.exe" || {
+    if [ ! -f "$NUPKG_FILE" ]; then
+        wget "$CLAUDE_URL" -O "$NUPKG_FILE" || {
             echo "Failed to download Claude Desktop"
             exit $EXIT_DOWNLOAD_ERROR
         }
@@ -100,38 +102,28 @@ download_and_extract() {
     # CLAUDE_SHA256="..." in build-claude.sh) to enforce a known-good hash.
     if [ -n "${CLAUDE_SHA256:-}" ]; then
         echo "Verifying SHA256..."
-        echo "${CLAUDE_SHA256}  Claude-Setup-x64.exe" | sha256sum -c - || {
-            echo "SHA256 mismatch for Claude-Setup-x64.exe"
+        echo "${CLAUDE_SHA256}  ${NUPKG_FILE}" | sha256sum -c - || {
+            echo "SHA256 mismatch for ${NUPKG_FILE}"
             echo "Expected: ${CLAUDE_SHA256}"
-            echo "Actual:   $(sha256sum Claude-Setup-x64.exe | cut -d' ' -f1)"
-            rm -f Claude-Setup-x64.exe
+            echo "Actual:   $(sha256sum "$NUPKG_FILE" | cut -d' ' -f1)"
+            rm -f "$NUPKG_FILE"
             exit $EXIT_DOWNLOAD_ERROR
         }
     else
         echo "WARNING: CLAUDE_SHA256 unset — skipping integrity verification."
-        echo "  Computed hash: $(sha256sum Claude-Setup-x64.exe | cut -d' ' -f1)"
+        echo "  Computed hash: $(sha256sum "$NUPKG_FILE" | cut -d' ' -f1)"
         echo "  Pin this value in build-claude.sh to enforce on subsequent builds."
     fi
 
-    # WORK_DIR persists on the cache volume across builds; leftover nupkgs
-    # and extracted app files from an older version would otherwise be
-    # picked up below instead of the freshly downloaded ones.
-    rm -f ./*.nupkg
+    # WORK_DIR persists across builds (cache volume / ~/.cache); remove
+    # leftover installers and extracted app files from older versions so
+    # they can't shadow the fresh payload.
+    find . -maxdepth 1 -name '*.nupkg' ! -name "$NUPKG_FILE" -delete
+    rm -f Claude-Setup-x64.exe
     rm -rf lib
 
+    # A nupkg is a plain zip; extracting it yields lib/net45/... directly.
     echo "Extracting..."
-    7z x -y "Claude-Setup-x64.exe" || {
-        echo "Failed to extract Claude-Setup-x64.exe"
-        exit $EXIT_EXTRACTION_ERROR
-    }
-    
-    # Find the actual nupkg file instead of assuming the name
-    NUPKG_FILE=$(find . -name "*.nupkg" | head -n 1)
-    if [ -z "$NUPKG_FILE" ]; then
-        echo "Could not find .nupkg file"
-        exit $EXIT_FILE_NOT_FOUND
-    fi
-    
     7z x -y "$NUPKG_FILE" || {
         echo "Failed to extract $NUPKG_FILE"
         exit $EXIT_EXTRACTION_ERROR

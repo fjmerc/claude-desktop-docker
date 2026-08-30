@@ -183,10 +183,10 @@ Two parallel Docker images, kept in sync:
   compiles Claude, runtime stage drops ~1.2 GB of build deps and ships only
   what's needed to run the app. Multi-arch (linux/amd64, linux/arm64) via CI.
 
-The `claude-linux-desktop-build/` directory does the actual `.exe` → Linux
-conversion: downloads `Claude-Setup-x64.exe`, extracts via 7z, repacks the
-asar, and builds a native Rust replacement for the `claude-native` Windows
-binding via napi-rs.
+The `claude-linux-desktop-build/` directory does the actual Windows → Linux
+conversion: downloads the versioned `AnthropicClaude-<version>-full.nupkg`,
+extracts via 7z, repacks the asar, and builds a native Rust replacement for
+the `claude-native` Windows binding via napi-rs.
 
 For more detail on the codebase layout, see
 [CLAUDE.md](CLAUDE.md). For multi-arch publishing, see

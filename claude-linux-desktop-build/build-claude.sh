@@ -13,12 +13,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configuration
 CLAUDE_VERSION="0.14.10"
-CLAUDE_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/Claude-Setup-x64.exe"
-# Pinned hash of the upstream installer for the CLAUDE_VERSION above.
-# build-module.sh verifies this before extraction. Bumps are automated by the
-# weekly upstream-version-check workflow; to bump by hand run
-# scripts/utils/bump-claude-version.sh <version> <sha256>.
-CLAUDE_SHA256="4a7fe5bcc95f29dedbfeeb45bc2c6b916343253ba0e0e392038968f5857c6aa9"
+# Versioned Squirrel package (a nupkg is a plain zip containing lib/net45/...).
+# The old Claude-Setup-x64.exe at this bucket is a stale bootstrapper frozen at
+# 0.9.2; current releases only ship as nupkgs listed in the bucket's RELEASES
+# manifest. The x64 payload is used on all host arches — the app code is
+# arch-independent JS and the native binding is replaced by locally-built
+# patchy-cnb.
+CLAUDE_URL="https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/AnthropicClaude-${CLAUDE_VERSION}-full.nupkg"
+# Pinned hash of the upstream nupkg. build-module.sh verifies this before
+# extraction. To bump CLAUDE_VERSION, check the new version exists in
+# .../nest-win-x64/RELEASES, run a build with CLAUDE_SHA256= unset to print
+# the new hash, and replace this constant.
+CLAUDE_SHA256="0be53c645f8f7fb08ea8fe66bc8833f5af4ad3c78482a25b5f4a3e90f90683fc"
 
 # Allow overriding build directory via environment variable
 BUILD_ROOT="${BUILD_ROOT:-$HOME/.cache/claude-desktop-build}"

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Compares the pinned CLAUDE_VERSION against the newest full release in
-# Anthropic's Squirrel RELEASES manifest. The installer URL in
-# build-claude.sh is unversioned (always the latest .exe), so a mismatch
-# means a build would ship a different version than its label/tag claims.
+# Anthropic's Squirrel RELEASES manifest. The download URL in build-claude.sh
+# is a versioned nupkg, so a mismatch means the pin is outdated — a build
+# would ship an older Claude than upstream's current release.
 #
 # Usage: check-upstream-version.sh [expected-version]
 #   With no argument, reads CLAUDE_VERSION from build-claude.sh.
@@ -52,8 +52,8 @@ echo "upstream: $UPSTREAM"
 
 if [ "$UPSTREAM" != "$EXPECTED" ]; then
     echo "ERROR: upstream Claude Desktop is $UPSTREAM but this repo pins $EXPECTED." >&2
-    echo "The installer download is unversioned, so a build now would ship $UPSTREAM labeled as $EXPECTED." >&2
-    echo "Bump CLAUDE_VERSION in claude-linux-desktop-build/build-claude.sh, test, then re-tag." >&2
+    echo "A build would still ship the pinned $EXPECTED, not the current $UPSTREAM release." >&2
+    echo "Bump via scripts/utils/bump-claude-version.sh <version> <sha256>, test, then re-tag." >&2
     exit 1
 fi
 
