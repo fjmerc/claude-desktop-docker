@@ -44,6 +44,8 @@ RUN apt-get update && \
     novnc \
     websockify \
     net-tools \
+    netcat-openbsd \
+    python3-pip \
     xfonts-base \
     xfonts-75dpi \
     xfonts-100dpi \
@@ -99,6 +101,11 @@ RUN apt-get update && \
     libasound2 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Git MCP server, referenced by the default claude_desktop_config.json
+# (python -m mcp_server_git). Without it every fresh container has a broken
+# MCP entry that costs users 30+ min to diagnose.
+RUN pip3 install --no-cache-dir mcp-server-git
 
 # Replace Ubuntu 22.04's noVNC 1.0.0 with upstream v1.6.0. The apt package is
 # pre-Async-Clipboard-API, so browser Ctrl+C/V cannot push text into the VNC
