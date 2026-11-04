@@ -7,7 +7,9 @@
 > (suite `stable`, component `main`). The final commit installs that package
 > and still works if you want Claude Desktop in a container behind a browser,
 > but it won't receive version bumps; edit `claude-desktop.pin` yourself or
-> use Anthropic's package directly.
+> use Anthropic's package directly. The `fjmerc/claude-desktop` image on
+> Docker Hub was last published from the old converter build and is not
+> updated; to use this final version, build from source.
 
 Run Anthropic's **Claude Desktop** headless inside a Docker container. The
 image installs Anthropic's official Linux build (the `.deb` from their APT
