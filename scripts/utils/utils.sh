@@ -35,9 +35,9 @@ is_container_running() {
     return $?
 }
 
-# Check if Claude Desktop is built
+# Check if Claude Desktop is installed in the container
 is_claude_desktop_built() {
-    docker exec claude-desktop bash -c "[ -f /root/claude-app/bin/claude-desktop ]"
+    docker exec claude-desktop bash -c "[ -x /usr/local/bin/claude-desktop ] && dpkg-query -W claude-desktop >/dev/null 2>&1"
     return $?
 }
 
@@ -47,7 +47,7 @@ get_container_status() {
     
     if is_container_running; then
         echo "✅ Container: Running"
-        docker exec claude-desktop bash -c "if [ -f /root/claude-app/bin/claude-desktop ]; then echo '✅ Claude Desktop: Built'; else echo '❌ Claude Desktop: Not built'; fi"
+        docker exec claude-desktop bash -c "if v=\$(dpkg-query -W -f='\${Version}' claude-desktop 2>/dev/null); then echo \"✅ Claude Desktop: \$v\"; else echo '❌ Claude Desktop: not installed'; fi"
         
         # Check VNC server
         if docker exec claude-desktop pgrep -x Xvnc > /dev/null; then

@@ -4,31 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project does
 
-Runs Anthropic's Claude **Desktop** (the Electron app, distributed as a Windows `.exe`) inside a headless Ubuntu 22.04 container. The container repackages the Windows build into a Linux Electron app at runtime and exposes the GUI over VNC (`:5901`) and noVNC (`http://localhost:6080/`); the VNC password comes from the `VNC_PASSWORD` env var, or is randomly generated and printed to the container logs on first boot. This is unrelated to the Claude Code CLI or the Anthropic API — do not propose API/SDK refactors.
+Runs Anthropic's Claude **Desktop** inside a headless Ubuntu 22.04 container, using Anthropic's **official Linux build** (the `claude-desktop` `.deb` from `https://downloads.claude.ai/claude-desktop/apt/stable`, amd64 + arm64). The image installs it at build time and exposes the GUI over VNC (`:5901`) and noVNC (`http://localhost:6080/`); the VNC password comes from the `VNC_PASSWORD` env var, or is randomly generated and printed to the container logs on first boot. This is unrelated to the Claude Code CLI or the Anthropic API — do not propose API/SDK refactors.
 
 ## Two parallel build paths — keep them in sync
 
 There are two Dockerfiles with overlapping but distinct purposes. Changes to install steps, scripts copied into the image, or environment variables almost always need to be made in both:
 
-1. **Local dev:** root `Dockerfile` + `docker-compose.yml`. Bind-mounts `scripts/` and `claude-linux-desktop-build/` from the host so you can iterate without rebuilding. Claude Desktop is **built at runtime** inside the running container by `./claude.sh build`.
-2. **Docker Hub publish:** `dockerhub/Dockerfile.dockerhub` + `dockerhub/docker-compose.dockerhub.yml`. `COPY`s scripts in and runs `build-claude.sh` + `install.sh` **at image build time** so the published image is self-contained. Multi-arch (linux/amd64, linux/arm64) via Buildx.
+1. **Local dev:** root `Dockerfile` + `docker-compose.yml`. Bind-mounts `scripts/` from the host so you can iterate on scripts without rebuilding.
+2. **Docker Hub publish:** `dockerhub/Dockerfile.dockerhub` + `dockerhub/docker-compose.dockerhub.yml`. `COPY`s scripts in so the published image is self-contained. Multi-arch (linux/amd64, linux/arm64) via Buildx.
 
-The CI workflow `.github/workflows/dockerhub.yml` triggers on `v*` tags or manual dispatch and pushes to `fjmerc/claude-desktop` on Docker Hub; when no version is given it reads the `CLAUDE_VERSION` pin from `build-claude.sh` (keep it that way — auto-bump PRs must never need to edit workflow files, which `GITHUB_TOKEN` cannot push). The interactive `dockerhub/menu.sh`, `test-dockerhub-image.sh`, and `build-dockerhub-multiarch.sh` all default to the same repo.
+Both install Claude Desktop identically via `scripts/build/install-claude-desktop.sh claude-desktop.pin`: download the pinned `.deb` for the image arch, verify its SHA256, `apt-get install` it, and write the root-aware wrapper `/usr/local/bin/claude-desktop` (adds `--no-sandbox` only when running as root, then execs `/usr/bin/claude-desktop`). It also repoints the package's menu entry at the wrapper.
 
-Version bumps are automated end-to-end: `.github/workflows/upstream-version-check.yml` (weekly) detects upstream drift, computes the new installer SHA256, rewrites every hardcoded version via `scripts/utils/bump-claude-version.sh`, smoke-tests a candidate amd64 image (`scripts/utils/smoke-test-image.sh`, shared with the publish workflow), and opens an `auto-bump/claude-<version>` PR. Merging that PR is the human gate: `.github/workflows/publish-on-bump-merge.yml` then tags `v<version>` and dispatches the Docker Hub publish.
+The CI workflow `.github/workflows/dockerhub.yml` triggers on `v*` tags or manual dispatch and pushes to `fjmerc/claude-desktop` on Docker Hub; the version always comes from `claude-desktop.pin` and a tag/input that disagrees with it fails the run (keep it that way — auto-bump PRs must never need to edit workflow files, which `GITHUB_TOKEN` cannot push). The interactive `dockerhub/menu.sh`, `test-dockerhub-image.sh`, and `build-dockerhub-multiarch.sh` all default to the same repo.
 
-## The build scripts directory
+Version bumps are automated end-to-end: `.github/workflows/upstream-version-check.yml` (weekly) detects upstream drift against the APT repo's `Packages` index (newest version published for **both** arches), downloads both `.deb`s and checks them against the index's SHA256, rewrites the pin and every hardcoded version via `scripts/utils/bump-claude-version.sh`, smoke-tests a candidate amd64 image (`scripts/utils/smoke-test-image.sh`, shared with the publish workflow), and opens an `auto-bump/claude-<version>` PR. Merging that PR is the human gate: `.github/workflows/publish-on-bump-merge.yml` then tags `v<version>` and dispatches the Docker Hub publish.
 
-`claude-linux-desktop-build/` is vendored directly in this repo (it began life as a git submodule on a private Gitea, but the files are now tracked here — there is no `.gitmodules`). It contains `build-claude.sh`, `install.sh`, `build-module.sh`, `packaging.sh`, `dependencies.sh`, `utils.sh`, `rust-code.rs`. These do the actual Windows → Linux conversion (download the versioned `AnthropicClaude-<version>-full.nupkg`, extract via 7z, repack the asar, build a native Rust module via napi-rs, generate a `.desktop` entry and launcher). `CLAUDE_VERSION` is hard-coded in `claude-linux-desktop-build/build-claude.sh` (currently `0.14.10`); the dockerhub Dockerfile passes it via the `VERSION` build-arg.
+## The version pin
+
+`claude-desktop.pin` (repo root, shell-sourceable) is the single source of truth: `CLAUDE_VERSION`, `CLAUDE_SHA256_AMD64`, `CLAUDE_SHA256_ARM64`. Workflows read it with `. ./claude-desktop.pin`. Bump it only with `scripts/utils/bump-claude-version.sh <version> <sha256-amd64> <sha256-arm64>` so the three values move together.
+
+History: until 2026-11 this repo converted the **Windows** installer into a Linux Electron app (vendored `claude-linux-desktop-build/`: nupkg download, asar repack, Rust napi stub for `claude-native`). That was retired when Anthropic shipped an official Linux `.deb`; the converter's history lives in git and in the standalone Gitea repo `fray/claude-linux-desktop-build`. Don't reintroduce it.
 
 ## Command dispatch architecture
 
 User-facing entry point is `./claude.sh COMMAND [args]` (a thin wrapper that execs `scripts/main.sh`). `scripts/main.sh` is a `case` dispatcher that routes to one of four script categories:
 
-- `scripts/build/` — Docker image + Claude Desktop builds, distribution archive
-- `scripts/run/` — container lifecycle (`run.sh start|stop|restart`), `startup.sh` (the container's `CMD`), `setup.sh`, `start-claude.sh`
-- `scripts/utils/` — shell, logs, status, dep verification, plus the VNC `xstartup`/`config` files and `find-electron.sh` for diagnosing PATH issues
-- `scripts/fix/` — targeted repair scripts (dbus, electron sandbox, VNC, desktop paths)
+- `scripts/build/` — image build (`build.sh`), the shared `install-claude-desktop.sh`, distribution archive
+- `scripts/run/` — container lifecycle (`run.sh start|stop|restart`), `startup.sh` (the container's `CMD`), `setup.sh`
+- `scripts/utils/` — shell, logs, status, dep verification, upstream check/bump, smoke test, plus the VNC `xstartup`/`config` files
+- `scripts/fix/` — targeted repair scripts (dbus, VNC)
 
 The `dockerhub` subcommand is a parallel dispatcher (`dockerhub/dockerhub-main.sh`) for the multi-arch flow with its own `build`/`check`/`push`/`menu` subcommands. Don't merge the two dispatchers — they have different working directories and config defaults.
 
@@ -37,35 +41,35 @@ The `dockerhub` subcommand is a parallel dispatcher (`dockerhub/dockerhub-main.s
 ```bash
 # First-time on a host: ensure permissions, then build image + Claude Desktop, then start
 ./claude.sh setup
-./claude.sh build                  # builds image AND runs build-claude.sh inside the container
+./claude.sh build                  # builds the image (installs the pinned Claude Desktop) and starts it
 ./claude.sh build --no-cache       # rebuild image from scratch
 ./claude.sh build --clean          # docker-compose down + rm before building
 
-./claude.sh start                  # docker-compose up -d, auto-launches Claude if already built
-./claude.sh start --build-claude   # also (re)build Claude Desktop on start
+./claude.sh start                  # docker-compose up -d; startup.sh launches Claude
+./claude.sh start-claude           # re-launch/re-show Claude in a running container
 ./claude.sh restart
 ./claude.sh stop
 
 ./claude.sh shell                  # exec bash in container
 ./claude.sh logs                   # docker-compose logs -f
 ./claude.sh status                 # container + Claude Desktop health
-./claude.sh find-electron          # locate electron binary for PATH troubleshooting
 ./claude.sh fix-vnc                # multi-strategy VNC repair
 ./claude.sh distribute             # create shareable tarball
 
 # Multi-arch publish (separate dispatcher)
 ./claude.sh dockerhub check --verbose
 ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64
-./claude.sh dockerhub push --version 0.14.10
+./claude.sh dockerhub push         # tag version comes from claude-desktop.pin
 ./claude.sh dockerhub menu         # interactive
 ```
 
-There is no test suite, linter, or package manager in this repo — it is shell scripts and Dockerfiles. "Verification" means `verify-dependencies.sh` (checks for required binaries inside the container) and `check-dockerhub-env.sh` (checks Buildx/QEMU on the host).
+There is no test suite, linter, or package manager in this repo — it is shell scripts and Dockerfiles. "Verification" means `scripts/utils/smoke-test-image.sh <image>` (boots an image; passes only when VNC is up, the Claude process is alive, and a "Claude" X window is mapped — CI runs it before every publish), `verify-dependencies.sh` (inside the container), and `check-dockerhub-env.sh` (Buildx/QEMU on the host).
 
 ## Runtime layout inside the container
 
-- `/startup.sh` is the `CMD`. It starts `vncserver :1 -geometry 1920x1080`, launches `novnc_proxy` (or falls back to `websockify`), then auto-runs `/root/claude-app/bin/claude-desktop --no-sandbox` (with fallbacks to `./electron --no-sandbox .`) under a watchdog that relaunches the app whenever it exits (disable with `CLAUDE_AUTO_RESTART=0`; skipped in kiosk mode, which relaunches via `Ctrl+Alt+C` (or `Super+C`; note "space" bound with modifiers never fires on the Xvnc XKB setup, and browsers' host OS eats Super combos); gives up after 5 rapid crash-loop exits). Required env: `DISPLAY=:1`, `ELECTRON_DISABLE_SANDBOX=1`, `ELECTRON_NO_ASAR=1`. Uses `--no-sandbox` because the container runs as root.
-- Named volumes persist across rebuilds: `app` → `/root/claude-app` (the built Electron app), `cache` → `/root/.cache` (build cache, including `~/.cache/claude-desktop-build`), `config` → `/root/.config/Claude` (login state/prefs), `home` → `/root/home`.
+- `/startup.sh` is the `CMD`. It starts `vncserver :1 -geometry 1920x1080`, launches `novnc_proxy` (or falls back to `websockify`), then runs `/usr/local/bin/claude-desktop` under a watchdog that relaunches the app whenever it exits (disable with `CLAUDE_AUTO_RESTART=0`; skipped in kiosk mode, which relaunches via `Ctrl+Alt+C` (or `Super+C`; note "space" bound with modifiers never fires on the Xvnc XKB setup, and browsers' host OS eats Super combos); gives up after 5 rapid crash-loop exits). Required env: `DISPLAY=:1`.
+- Process match used by startup.sh, the HEALTHCHECK, status and the smoke test: `pgrep -f '^/usr/(bin|lib/claude-desktop)/claude-desktop'` (main process runs as `/usr/bin/claude-desktop`, Chromium children as `/usr/lib/claude-desktop/claude-desktop --type=...`).
+- Named volumes persist across rebuilds: `config` → `/root/.config/Claude` (login state/prefs), `cache` → `/root/.cache`, `home` → `/root/home`, `vnc` → `/root/.vnc`. The app itself is **not** in a volume (it lives in the image under `/usr/lib/claude-desktop`) — never put it back in one: Docker seeds a named volume from the image only on first creation, so the old `app` volume silently pinned every user to their first-pulled app version.
 - `docker-compose.yml` also bind-mounts `/home/fray/Documents/memory/` → `/root/memory` (host-specific path; will not exist on other developers' machines — strip or parameterize before publishing).
 - `privileged: true` and `shm_size: 2gb` are required for Electron/X11 to work; don't remove them casually.
 
@@ -80,4 +84,5 @@ There is no test suite, linter, or package manager in this repo — it is shell 
 
 - `docker-compose.yml` is in `.gitignore` — but it *is* tracked. The ignore entry is there so users editing it locally (e.g., changing the `/home/fray/...` bind mount) don't accidentally commit personal paths. Use `git update-index --skip-worktree` semantics mentally; don't "fix" the gitignore.
 - VNC server runs as root. This is intentional for a single-user dev container; do not propose hardening unless asked.
-- The download URL in `build-claude.sh` is a **versioned** nupkg (`AnthropicClaude-${CLAUDE_VERSION}-full.nupkg`) from Anthropic's Squirrel bucket. (It used to be the unversioned `Claude-Setup-x64.exe`, but Anthropic froze that bootstrapper at 0.9.2 in Oct 2025 — new releases only appear in the bucket's `RELEASES` manifest, which caused a mislabeled 0.14.10 image that actually contained 0.9.2.) `CLAUDE_SHA256` pins the nupkg hash; when upstream moves, `scripts/utils/check-upstream-version.sh` (run in CI before publish and weekly via `.github/workflows/upstream-version-check.yml`) blocks publishing, and the weekly workflow auto-opens a smoke-tested bump PR whose SHA256 is cross-checked against the SHA1 in `RELEASES`. To bump by hand instead: `scripts/utils/bump-claude-version.sh <version> <sha256>`.
+- `check-upstream-version.sh` fails not only on version drift but also when the APT repo's `Release` file `Date` is older than `MAX_FEED_AGE_DAYS` (21). Anthropic re-signs it weekly; a stale date means the feed has probably moved. This exists because the old Windows feed (a GCS bucket) froze in Oct 2025 while the version check kept passing for a year. Don't remove it to make CI green — find the new feed.
+- The Linux `.deb` can lag the Windows/macOS releases (on 2026-11-03 Linux was at 4.4212.0 while Windows was at 4.16336.0; Linux caught up the next day). A gap is upstream cadence, not a bug in the check.

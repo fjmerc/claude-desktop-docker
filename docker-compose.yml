@@ -9,9 +9,7 @@ services:
       - "${VNC_PORT:-5901}:5901"   # VNC port
       - "${NOVNC_PORT:-6080}:6080" # noVNC web interface port
     volumes:
-      - ./claude-linux-desktop-build:/root/claude-linux-desktop-build
       - ./scripts:/scripts
-      - app:/root/claude-app
       - cache:/root/.cache
       - config:/root/.config/Claude
       - home:/root/home
@@ -21,7 +19,6 @@ services:
       # to docker-compose.override.yml and customize. compose auto-merges it.
     environment:
       - DISPLAY=:1
-      - APP_INSTALL_DIR=/root/claude-app
       - DEBIAN_FRONTEND=noninteractive
       - USER=root
       - HOME=/root
@@ -43,8 +40,6 @@ services:
     shm_size: 2gb    # Larger shared memory helps Electron renderers
     restart: unless-stopped
 volumes:
-  app:
-    driver: local
   cache:
     driver: local
   config:

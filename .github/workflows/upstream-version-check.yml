@@ -1,11 +1,11 @@
 name: Upstream version check
 
 # Detects when Anthropic publishes a Claude Desktop version newer than the
-# CLAUDE_VERSION pinned in claude-linux-desktop-build/build-claude.sh, and
-# bumps it automatically:
+# CLAUDE_VERSION pinned in claude-desktop.pin (read from Anthropic's official
+# APT repo, for every arch the image ships), and bumps it automatically:
 #
-#   1. download the new versioned nupkg, cross-check it against the SHA1
-#      upstream publishes in RELEASES, and compute its SHA256
+#   1. download the new amd64 and arm64 .debs and verify each against the
+#      SHA256 the repo's Packages index lists
 #   2. rewrite the version + hash pins via scripts/utils/bump-claude-version.sh
 #   3. build an amd64 candidate image and run the boot smoke test against it
 #   4. open a PR with the bump (branch auto-bump/claude-<version>)
@@ -14,8 +14,10 @@ name: Upstream version check
 # and dispatches the Docker Hub multi-arch publish. The PR merge is the human
 # gate — nothing is published without it.
 #
-# If any bump step fails (installer moved mid-run, build broke, smoke test
-# red), the workflow fails loudly, preserving the original alerting behavior.
+# If any bump step fails (package moved mid-run, build broke, smoke test
+# red), the workflow fails loudly. check-upstream-version.sh also fails when
+# the feed itself stops being re-signed, so a feed that moves elsewhere can't
+# pass silently the way the old Windows feed did.
 #
 # Requires the repo setting: Settings → Actions → General →
 # "Allow GitHub Actions to create and approve pull requests".
@@ -36,10 +38,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Compare pinned CLAUDE_VERSION with upstream RELEASES
+      - name: Compare pinned CLAUDE_VERSION with the upstream APT repo
         id: drift
         run: |
-          PINNED=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          PINNED=$(. ./claude-desktop.pin && echo "$CLAUDE_VERSION")
           UPSTREAM=$(bash scripts/utils/check-upstream-version.sh --upstream-only)
           echo "pinned:   $PINNED"
           echo "upstream: $UPSTREAM"
@@ -58,31 +60,35 @@ jobs:
             exit 1
           fi
 
-      - name: Download new installer and compute SHA256
+      - name: Download the new .debs and verify their SHA256
         if: steps.drift.outputs.bump == 'true'
         id: sha
+        env:
+          UPSTREAM: ${{ steps.drift.outputs.upstream }}
         run: |
-          UPSTREAM="${{ steps.drift.outputs.upstream }}"
-          # CLAUDE_URL embeds ${CLAUDE_VERSION}; expand it with the upstream
-          # version to address the nupkg of the release we are bumping to.
-          URL=$(sed -nE 's/^CLAUDE_URL="([^"]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
-          URL="${URL//\$\{CLAUDE_VERSION\}/$UPSTREAM}"
-          curl -fsSL -o /tmp/claude.nupkg "$URL"
-          SHA=$(sha256sum /tmp/claude.nupkg | cut -d' ' -f1)
-          # Cross-check the download against the SHA1 upstream publishes in
-          # RELEASES, so we never pin the hash of a corrupt/tampered object.
-          EXPECTED_SHA1=$(curl -fsSL "https://storage.googleapis.com/osprey-downloads-c02f6a0d-347c-492b-a752-3e0651722e97/nest-win-x64/RELEASES" \
-            | tr -d '\r' | awk -v f="AnthropicClaude-${UPSTREAM}-full.nupkg" '$2 == f { print tolower($1) }')
-          ACTUAL_SHA1=$(sha1sum /tmp/claude.nupkg | cut -d' ' -f1)
-          if [ -z "$EXPECTED_SHA1" ] || [ "$EXPECTED_SHA1" != "$ACTUAL_SHA1" ]; then
-            echo "ERROR: SHA1 mismatch vs RELEASES manifest (expected '$EXPECTED_SHA1', got '$ACTUAL_SHA1')" >&2
-            exit 1
-          fi
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          # Download each .deb and check it against the hash in the Packages
+          # index, so we never pin the hash of a corrupt or missing object
+          # (the index can briefly run ahead of the CDN).
+          BASE=https://downloads.claude.ai/claude-desktop/apt/stable/pool/main/c/claude-desktop
+          for ARCH in amd64 arm64; do
+            EXPECTED=$(bash scripts/utils/check-upstream-version.sh --sha256 "$ARCH" "$UPSTREAM")
+            curl -fsSL --retry 5 --retry-delay 30 --retry-all-errors \
+              -o "/tmp/claude_$ARCH.deb" "$BASE/claude-desktop_${UPSTREAM}_${ARCH}.deb"
+            ACTUAL=$(sha256sum "/tmp/claude_$ARCH.deb" | cut -d' ' -f1)
+            if [ "$EXPECTED" != "$ACTUAL" ]; then
+              echo "ERROR: $ARCH SHA256 mismatch vs Packages index (expected '$EXPECTED', got '$ACTUAL')" >&2
+              exit 1
+            fi
+            echo "sha256_$ARCH=$ACTUAL" >> "$GITHUB_OUTPUT"
+          done
 
-      - name: Bump pinned version and hash
+      - name: Bump pinned version and hashes
         if: steps.drift.outputs.bump == 'true'
-        run: bash scripts/utils/bump-claude-version.sh "${{ steps.drift.outputs.upstream }}" "${{ steps.sha.outputs.sha256 }}"
+        env:
+          UPSTREAM: ${{ steps.drift.outputs.upstream }}
+          SHA256_AMD64: ${{ steps.sha.outputs.sha256_amd64 }}
+          SHA256_ARM64: ${{ steps.sha.outputs.sha256_arm64 }}
+        run: bash scripts/utils/bump-claude-version.sh "$UPSTREAM" "$SHA256_AMD64" "$SHA256_ARM64"
 
       - name: Set up Docker Buildx
         if: steps.drift.outputs.bump == 'true'
@@ -107,7 +113,6 @@ jobs:
           load: true
           tags: claude-desktop-smoke:test
           build-args: |
-            VERSION=${{ steps.drift.outputs.upstream }}
             NODE_VERSION=22.x
           cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
 
@@ -124,11 +129,13 @@ jobs:
           commit-message: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
           title: "chore: bump Claude Desktop ${{ steps.drift.outputs.pinned }} -> ${{ steps.drift.outputs.upstream }}"
           body: |
-            Upstream RELEASES now advertises `${{ steps.drift.outputs.upstream }}`,
+            Anthropic's Claude Desktop APT repo now publishes `${{ steps.drift.outputs.upstream }}` (amd64 + arm64),
             this repo pinned `${{ steps.drift.outputs.pinned }}`.
 
-            - `CLAUDE_VERSION` and every other hardcoded version string bumped `${{ steps.drift.outputs.pinned }}` -> `${{ steps.drift.outputs.upstream }}`
-            - `CLAUDE_SHA256` re-pinned to the new nupkg (SHA1 cross-checked against RELEASES): `${{ steps.sha.outputs.sha256 }}`
+            - `claude-desktop.pin` and every other hardcoded version string bumped `${{ steps.drift.outputs.pinned }}` -> `${{ steps.drift.outputs.upstream }}`
+            - per-arch SHA256 re-pinned (each .deb downloaded and checked against the Packages index):
+              - amd64 `${{ steps.sha.outputs.sha256_amd64 }}`
+              - arm64 `${{ steps.sha.outputs.sha256_arm64 }}`
             - An amd64 image built from this change passed the boot smoke test in the workflow run that opened this PR
 
             **Merging this PR publishes automatically:** `publish-on-bump-merge.yml`

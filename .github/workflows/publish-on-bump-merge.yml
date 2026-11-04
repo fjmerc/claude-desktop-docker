@@ -29,9 +29,9 @@ jobs:
 
       - name: Tag the release
         run: |
-          VERSION=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+          VERSION=$(. ./claude-desktop.pin && echo "$CLAUDE_VERSION")
           if [ -z "$VERSION" ]; then
-            echo "ERROR: could not read CLAUDE_VERSION from build-claude.sh" >&2
+            echo "ERROR: could not read CLAUDE_VERSION from claude-desktop.pin" >&2
             exit 1
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -45,4 +45,5 @@ jobs:
       - name: Dispatch Docker Hub publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run dockerhub.yml --ref "${{ github.event.pull_request.base.ref }}" -f version="$VERSION"
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: gh workflow run dockerhub.yml --ref "$BASE_REF" -f version="$VERSION"

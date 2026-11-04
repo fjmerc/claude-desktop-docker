@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (defaults to the CLAUDE_VERSION pinned in build-claude.sh)'
+        description: 'Version to build (must match claude-desktop.pin; defaults to it)'
         required: false
         default: ''
       platforms:
@@ -44,16 +44,18 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_PLATFORMS: ${{ github.event.inputs.platforms }}
         run: |
+          # claude-desktop.pin decides what the image contains; a tag or input
+          # can only confirm it, never override it, or the tag would lie.
+          PINNED=$(. ./claude-desktop.pin && echo "$CLAUDE_VERSION")
           if [[ -n "$INPUT_VERSION" ]]; then
             VERSION="$INPUT_VERSION"
           elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            # Single source of truth so auto-bump PRs never touch workflow files
-            VERSION=$(sed -nE 's/^CLAUDE_VERSION="([0-9.]+)"/\1/p' claude-linux-desktop-build/build-claude.sh)
+            VERSION="$PINNED"
           fi
-          if [[ -z "$VERSION" ]]; then
-            echo "ERROR: could not determine version" >&2
+          if [[ -z "$VERSION" || "$VERSION" != "$PINNED" ]]; then
+            echo "ERROR: requested version '$VERSION' does not match claude-desktop.pin ('$PINNED')" >&2
             exit 1
           fi
           PLATFORMS="${INPUT_PLATFORMS:-linux/amd64,linux/arm64}"
@@ -75,9 +77,9 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
 
       - name: Verify pinned version matches upstream
-        # The installer URL is unversioned (always latest), so building while
-        # upstream has moved would publish a mislabeled image. Fail here; the
-        # weekly upstream-version-check workflow opens the bump PR that fixes it.
+        # Publishing while upstream has moved would ship an outdated image as
+        # "latest". Fail here; the weekly upstream-version-check workflow opens
+        # the bump PR that fixes it. Also fails if the feed has gone stale.
         run: bash scripts/utils/check-upstream-version.sh "$VERSION"
 
       - name: Build (load amd64 for smoke test)
@@ -89,7 +91,6 @@ jobs:
           load: true
           tags: claude-desktop-smoke:test
           build-args: |
-            VERSION=${{ env.VERSION }}
             NODE_VERSION=22.x
           cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
 
@@ -106,7 +107,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ env.VERSION }}
             NODE_VERSION=22.x
           cache-from: type=registry,ref=fjmerc/claude-desktop:buildcache
           cache-to: type=registry,ref=fjmerc/claude-desktop:buildcache,mode=max

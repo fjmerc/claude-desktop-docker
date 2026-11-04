@@ -21,11 +21,10 @@ echo "Checking if noVNC is running..."
 ps aux | grep novnc
 
 echo "Checking if Claude Desktop is installed..."
-if [ -d "/root/claude-app" ]; then
-  echo "Claude Desktop is installed at /root/claude-app"
-  ls -la /root/claude-app
+if v=$(dpkg-query -W -f='${Version}' claude-desktop 2>/dev/null); then
+  echo "Claude Desktop $v is installed (/usr/lib/claude-desktop)"
 else
-  echo "Claude Desktop is not installed yet"
+  echo "Claude Desktop is not installed in this image"
 fi
 
 echo

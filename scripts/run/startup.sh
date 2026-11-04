@@ -189,53 +189,28 @@ echo "========================================================"
 # Wait for XFCE to fully initialize
 sleep 5
 
-# Check if Claude Desktop is installed
-if [ -d "/root/claude-app" ] && [ -x "/root/claude-app/bin/claude-desktop" ]; then
-  echo "Starting Claude Desktop..."
-  
-  # Add electron directories to path if not already included
-  which electron >/dev/null 2>&1 || {
-    echo "electron not in PATH, adding npm directories"
-    export PATH=/root/.npm-global/bin:/usr/local/lib/node_modules/electron/dist:$PATH
-  }
-  
-  echo "Updated PATH: $PATH"
+# Matches the Claude main process and its Chromium children (official .deb
+# layout: /usr/bin/claude-desktop -> /usr/lib/claude-desktop/claude-desktop).
+CLAUDE_PROC_RE='^/usr/(bin|lib/claude-desktop)/claude-desktop'
+
+# Check if Claude Desktop is installed. /usr/local/bin/claude-desktop is the
+# root-aware wrapper from install-claude-desktop.sh (adds --no-sandbox).
+if [ -x /usr/local/bin/claude-desktop ] && [ -x /usr/bin/claude-desktop ]; then
+  echo "Starting Claude Desktop $(dpkg-query -W -f='${Version}' claude-desktop 2>/dev/null)..."
   
   # Set up D-Bus and XDG environment variables if not already done
   if [ -f /scripts/utils/dbus-setup.sh ]; then
     source /scripts/utils/dbus-setup.sh
   fi
   
-  # Ensure permissions are correct
-  chmod +x /root/claude-app/bin/claude-desktop
-  
-  # Fix for any xdg-open related errors
-  export ELECTRON_DISABLE_SANDBOX=1
-  export ELECTRON_NO_ASAR=1
-  export ELECTRON_NO_ATTACH_CONSOLE=1
-  
-  # Launches one app instance, with the electron fallback if the primary
-  # binary dies within 2s (the sleep gives the fork time to actually
-  # exec/exit; an immediate ps check would be a no-op race). Also spawns a
-  # loop that maximizes the window once it appears: Electron's first-run
-  # window is small and not centered well in 1920x1080, users expect
-  # full-screen on a VNC/noVNC display.
+  # Launches one app instance. Also spawns a loop that maximizes the window
+  # once it appears: the first-run window is small and not centered well in
+  # 1920x1080, users expect full-screen on a VNC/noVNC display.
   launch_claude() {
-    cd /root/claude-app/bin
+    cd /root
     echo "Launching claude-desktop application..."
-    ./claude-desktop --no-sandbox &
+    /usr/local/bin/claude-desktop &
     CLAUDE_PID=$!
-    sleep 2
-    if ! ps -p "$CLAUDE_PID" > /dev/null; then
-      echo "Failed to start Claude Desktop with bin/claude-desktop, trying alternative method..."
-      cd /root/claude-app
-      if [ -f "electron" ]; then
-        ./electron --no-sandbox . &
-      else
-        electron --no-sandbox . &
-      fi
-      CLAUDE_PID=$!
-    fi
     echo "$CLAUDE_PID" > /tmp/claude-desktop.pid
 
     ( for i in $(seq 1 30); do
@@ -272,7 +247,7 @@ if [ -d "/root/claude-app" ] && [ -x "/root/claude-app/bin/claude-desktop" ]; th
         # (orphaned renderer tree, or a partial crash). Relaunching then just
         # hits Electron's single-instance lock and exits immediately, spinning
         # the loop. Wait for the whole tree to be gone before relaunching.
-        while pgrep -f 'electron.*app.asar' >/dev/null 2>&1; do
+        while pgrep -f "$CLAUDE_PROC_RE" >/dev/null 2>&1; do
           [ -f /tmp/claude-shutdown ] && exit 0
           sleep 5
         done
@@ -284,7 +259,7 @@ if [ -d "/root/claude-app" ] && [ -x "/root/claude-app/bin/claude-desktop" ]; th
         fi
         if [ "$rapid_exits" -ge 5 ]; then
           echo "Claude Desktop exited $rapid_exits times in under 30s each — crash loop, giving up."
-          echo "Relaunch manually: docker exec -d -e DISPLAY=:1 <container> /root/claude-app/bin/claude-desktop --no-sandbox"
+          echo "Relaunch manually: docker exec -d -e DISPLAY=:1 <container> claude-desktop"
           exit 1
         fi
         echo "Claude Desktop exited (code $rc) after ${ran}s — relaunching in 5s..."
@@ -301,8 +276,8 @@ if [ -d "/root/claude-app" ] && [ -x "/root/claude-app/bin/claude-desktop" ]; th
     fi
   fi
 else
-  echo "WARNING: Claude Desktop not found or not executable."
-  echo "Please build it first by running ./claude.sh build --build-claude"
+  echo "WARNING: Claude Desktop is not installed in this image."
+  echo "Rebuild the image: ./claude.sh build (or pull a published fjmerc/claude-desktop tag)."
 fi
 
 echo "Container is now running."

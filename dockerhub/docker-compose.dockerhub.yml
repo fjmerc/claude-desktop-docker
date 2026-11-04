@@ -6,14 +6,12 @@ services:
       - "${VNC_PORT:-5901}:5901"   # VNC port
       - "${NOVNC_PORT:-6080}:6080" # noVNC web interface port
     volumes:
-      - app:/root/claude-app
       - cache:/root/.cache
       - config:/root/.config/Claude
       - home:/root/home
       - vnc:/root/.vnc
     environment:
       - DISPLAY=:1
-      - APP_INSTALL_DIR=/root/claude-app
       - DEBIAN_FRONTEND=noninteractive
       - USER=root
       - HOME=/root
@@ -29,15 +27,13 @@ services:
     shm_size: 2gb
     restart: unless-stopped
     healthcheck:
-      # Verify VNC is up AND a Claude renderer is alive (catch crashes).
-      test: ["CMD-SHELL", "nc -z localhost 5901 && pgrep -f 'electron.*app.asar' >/dev/null"]
+      # Verify VNC is up AND the Claude main process is alive (catch crashes).
+      test: ["CMD-SHELL", "nc -z localhost 5901 && pgrep -f '^/usr/(bin|lib/claude-desktop)/claude-desktop' >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 volumes:
-  app:
-    driver: local
   cache:
     driver: local
   config:

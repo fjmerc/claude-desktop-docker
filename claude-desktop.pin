@@ -1,0 +1,13 @@
+# Pinned release of Anthropic's official Claude Desktop for Linux.
+#
+# Single source of truth for which Claude Desktop the image ships. Read by
+# scripts/build/install-claude-desktop.sh (at image build time) and by the CI
+# workflows (version tags, upstream drift check). Bump it with
+# scripts/utils/bump-claude-version.sh, never by hand-editing one line, so the
+# version and both hashes always move together.
+#
+# Source: https://downloads.claude.ai/claude-desktop/apt/stable
+# Hashes are the SHA256 values the repo's Packages index lists per arch.
+CLAUDE_VERSION="4.4212.0"
+CLAUDE_SHA256_AMD64="4fcf658e0fc895390ab82593287281dfbce261b0ec3ea90060e82d8bfbfd7a84"
+CLAUDE_SHA256_ARM64="7022dc56de30e0beb7fa0a7dc84e09aa00d7f9d4e1b7f93043b32baf75a2f6d8"

@@ -21,19 +21,15 @@
          * The key must be a letter. "space" bound with any modifier never
            fires on this Xvnc/XKB setup (verified with xdotool tracers:
            C-A-y and C-A-c fire, C-A-space and W-space never do).
-         * The command is fully explicit: openbox's environment only has
-           DISPLAY, and the launcher in the claude_app volume may predate
-           root/sandbox auto-detection (the volume shadows newer image
-           content), so it needs both ELECTRON_* vars and the sandbox flag.
-         * Don't shorten it to a bare "claude-desktop":
-           /usr/local/bin/claude-desktop is a copied (not symlinked)
-           launcher that resolves its app dir relative to itself and dies
-           looking for /usr/local/lib/claude-desktop/app.asar.
+         * The command is an absolute path because openbox's environment
+           only has DISPLAY. /usr/local/bin/claude-desktop is the wrapper
+           from install-claude-desktop.sh: it adds the no-sandbox flag when
+           running as root, then execs the official /usr/bin/claude-desktop.
          * Never write a literal double hyphen inside an XML comment;
            openbox rejects the whole file and silently loses every keybind. -->
     <keybind key="W-c">
       <action name="Execute">
-        <command>env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_NO_ASAR=1 /root/claude-app/bin/claude-desktop --no-sandbox</command>
+        <command>/usr/local/bin/claude-desktop</command>
         <startupnotify>
           <enabled>yes</enabled>
         </startupnotify>
@@ -45,7 +41,7 @@
          (Win+key on Windows, Cmd+key on macOS) before noVNC sees them. -->
     <keybind key="C-A-c">
       <action name="Execute">
-        <command>env ELECTRON_DISABLE_SANDBOX=1 ELECTRON_NO_ASAR=1 /root/claude-app/bin/claude-desktop --no-sandbox</command>
+        <command>/usr/local/bin/claude-desktop</command>
         <startupnotify>
           <enabled>yes</enabled>
         </startupnotify>

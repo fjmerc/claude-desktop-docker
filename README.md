@@ -1,17 +1,26 @@
 # Claude Desktop in Docker
 
-Run Anthropic's **Claude Desktop** (the native Electron app) on Linux, headless,
-inside a Docker container. The Windows installer is repacked into a Linux
-Electron app at build time; the app runs under XFCE on a virtual display
-served over **VNC** and a **noVNC** web interface, so you can connect from
-any browser on any device — laptop, phone, work machine — to the same
-persistent Claude session.
+> **Archived (November 2026).** This project is no longer maintained.
+> It was started because Claude Desktop had no Linux version; Anthropic now
+> publishes an official one (amd64 and arm64) as a `.deb` from their APT
+> repository at `https://downloads.claude.ai/claude-desktop/apt/stable`
+> (suite `stable`, component `main`). The final commit installs that package
+> and still works if you want Claude Desktop in a container behind a browser,
+> but it won't receive version bumps; edit `claude-desktop.pin` yourself or
+> use Anthropic's package directly. The `fjmerc/claude-desktop` image on
+> Docker Hub was last published from the old converter build and is not
+> updated; to use this final version, build from source.
 
-Why? Anthropic ships Claude Desktop only for Windows and macOS. There is no
-official Linux build. And the desktop app exposes the local **MCP server**
-ecosystem in a way the web app at claude.ai doesn't. Running it in Docker
-lets you keep one Claude that lives on your server, sees your files via MCP,
-and follows you across devices.
+Run Anthropic's **Claude Desktop** headless inside a Docker container. The
+image installs Anthropic's official Linux build (the `.deb` from their APT
+repository); the app runs under XFCE on a virtual display served over **VNC**
+and a **noVNC** web interface, so you can connect from any browser on any
+device — laptop, phone, work machine — to the same persistent Claude session.
+
+Why? The desktop app exposes the local **MCP server** ecosystem in a way the
+web app at claude.ai doesn't, and a desktop app normally lives on one
+machine. Running it in Docker lets you keep one Claude that lives on your
+server, sees your files via MCP, and follows you across devices.
 
 ## Quick start
 
@@ -34,7 +43,7 @@ git clone https://github.com/fjmerc/claude-desktop-docker.git
 cd claude-desktop-docker
 
 ./claude.sh setup          # one-time: chmod and verify Docker is installed
-./claude.sh build          # build image and Claude Desktop, ~10–15 min cold
+./claude.sh build          # build the image (installs Claude Desktop) and start it
 ```
 
 When the container starts for the first time, watch `docker logs` for the
@@ -81,7 +90,7 @@ commands (`docker start claude-desktop`, `docker stop claude-desktop`,
 # Multi-arch publish
 ./claude.sh dockerhub check --verbose
 ./claude.sh dockerhub build --platforms linux/amd64,linux/arm64
-./claude.sh dockerhub push --version 0.14.10
+./claude.sh dockerhub push   # tags with the version in claude-desktop.pin
 ```
 
 ## Configuration via .env / docker-compose.override.yml
@@ -109,11 +118,10 @@ so the watchdog (correctly) does nothing. To bring the window back without
 restarting anything:
 
 ```bash
-docker exec -d -e DISPLAY=:1 -e ELECTRON_DISABLE_SANDBOX=1 -e ELECTRON_NO_ASAR=1 \
-    claude-desktop /root/claude-app/bin/claude-desktop --no-sandbox
+docker exec -d -e DISPLAY=:1 claude-desktop claude-desktop
 ```
 
-Electron's single-instance lock hands the invocation to the running app, which
+(`./claude.sh start-claude` runs the same command.) The app's single-instance lock hands the invocation to the running app, which
 re-shows its window. The same command also works after a full quit if the
 watchdog is disabled or has given up.
 
@@ -174,19 +182,23 @@ filesystem MCP server. Same pattern works for any of the
 Two parallel Docker images, kept in sync:
 
 - **Local-dev** — `Dockerfile` + `docker-compose.yml`. Bind-mounts `scripts/`
-  and the `claude-linux-desktop-build/` directory. Fat: keeps rustup/build
-  deps at runtime so you can rebuild Claude in place via `./claude.sh build`.
-  Used during development.
+  from the host so script edits take effect without a rebuild. Used during
+  development.
 
 - **Published** — `dockerhub/Dockerfile.dockerhub` +
-  `dockerhub/docker-compose.dockerhub.yml`. **Multi-stage**: builder stage
-  compiles Claude, runtime stage drops ~1.2 GB of build deps and ships only
-  what's needed to run the app. Multi-arch (linux/amd64, linux/arm64) via CI.
+  `dockerhub/docker-compose.dockerhub.yml`. Self-contained; multi-arch
+  (linux/amd64, linux/arm64) via CI.
 
-The `claude-linux-desktop-build/` directory does the actual Windows → Linux
-conversion: downloads the versioned `AnthropicClaude-<version>-full.nupkg`,
-extracts via 7z, repacks the asar, and builds a native Rust replacement for
-the `claude-native` Windows binding via napi-rs.
+Both install Claude Desktop the same way: `scripts/build/install-claude-desktop.sh`
+downloads Anthropic's official `.deb` for the image's architecture, checks it
+against the SHA256 pinned in [`claude-desktop.pin`](claude-desktop.pin), and
+installs it. A small wrapper at `/usr/local/bin/claude-desktop` adds
+`--no-sandbox` when running as root (Chromium's sandbox can't run as root).
+
+A weekly CI job compares the pin with Anthropic's APT repository and opens a
+smoke-tested bump PR when a new release is published for both architectures.
+It also fails if the repository stops being re-signed, which would mean the
+feed has moved.
 
 For more detail on the codebase layout, see
 [CLAUDE.md](CLAUDE.md). For multi-arch publishing, see
@@ -196,14 +208,21 @@ For more detail on the codebase layout, see
 
 | Volume | Container path | Holds |
 |---|---|---|
-| `app` | `/root/claude-app` | The built Electron app |
-| `cache` | `/root/.cache` | Build cache (rust artifacts, node_modules, etc.) |
+| `cache` | `/root/.cache` | App caches (npm/npx for MCP servers, etc.) |
 | `config` | `/root/.config/Claude` | Login state, MCP config, conversation history |
 | `home` | `/root/home` | Misc user data |
 | `vnc` | `/root/.vnc` | VNC password file, xstartup |
 
 Login persists across restarts and image rebuilds. To wipe and start fresh:
 `./claude.sh login-reset`.
+
+**Upgrading from an image before 4.x:** older versions kept the app itself in
+an `app` volume at `/root/claude-app`. Docker fills a named volume from the
+image only when the volume is first created, so that volume silently kept
+the app from your first pull. The app now lives in the image
+(`/usr/lib/claude-desktop`), and the compose files no longer mount `app`.
+Once you're on the new image you can delete the leftover volume
+(`docker volume ls | grep _app`, then `docker volume rm <name>`).
 
 ## Verified working
 
@@ -227,6 +246,12 @@ Login persists across restarts and image rebuilds. To wipe and start fresh:
   email-code login flow is fully in-app and unaffected.
 - **VNC traffic is unencrypted.** Fine on a trusted LAN; if exposing
   publicly, put a reverse proxy with TLS + auth in front of port 6080.
+- **Cowork is not supported.** It runs a local VM (QEMU + KVM). The image
+  doesn't install the QEMU packages, and a container would also need the
+  host's `/dev/kvm`.
+- **No system keyring.** The image has no `gnome-keyring`, so the app can't
+  use a Secret Service store. If you're ever logged out after a
+  `docker restart`, this is the first suspect.
 
 ## Troubleshooting
 
