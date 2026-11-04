@@ -9,9 +9,7 @@ services:
       - "5901:5901"  # VNC port
       - "6080:6080"  # noVNC web interface port
     volumes:
-      - ${PWD}/claude-linux-desktop-build:/root/claude-linux-desktop-build
       - ${PWD}/scripts:/scripts
-      - app:/root/claude-app
       - cache:/root/.cache
       - config:/root/.config/Claude
       - home:/root/home
@@ -19,7 +17,6 @@ services:
       # - /path/to/your/files:/root/files
     environment:
       - DISPLAY=:1
-      - APP_INSTALL_DIR=/root/claude-app
       - DEBIAN_FRONTEND=noninteractive
       - USER=root
       - HOME=/root
@@ -29,8 +26,6 @@ services:
     shm_size: 2gb    # Increase shared memory for UI applications
     restart: unless-stopped
 volumes:
-  app:
-    driver: local
   cache:
     driver: local
   config:

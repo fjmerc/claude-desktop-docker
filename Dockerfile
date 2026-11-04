@@ -20,15 +20,13 @@ RUN apt-get update && \
 # Setup NodeSource repository for Node.js 22.x
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 
-# Install Node.js and core build tools
+# Node.js (for npx-launched MCP servers; Claude Desktop bundles its own runtime)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     nodejs \
-    build-essential \
     git \
     rsync \
     wget \
-    && npm install -g asar @napi-rs/cli electron \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -63,20 +61,9 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust via rustup. Ubuntu 22.04's apt rustc lags far behind the MSRV
-# of crates the napi-rs build pulls in (e.g. unicode-segmentation requires
-# rustc 1.85+). rustup ships current stable. --profile minimal keeps it ~250MB.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --profile minimal --default-toolchain stable && \
-    ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo && \
-    ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc
-
-# Install Claude Desktop build dependencies
+# Editors and desktop utilities
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    p7zip-full \
-    imagemagick \
-    icoutils \
     nano \
     vim \
     xdg-utils \
@@ -87,8 +74,6 @@ RUN apt-get update && \
 # Install library dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libssl-dev \
-    pkg-config \
     x11-xserver-utils \
     libnspr4 \
     libnss3 \
@@ -145,12 +130,18 @@ RUN chmod +x /startup.sh /scripts/utils/verify-dependencies.sh
 # Create symlink for compatibility
 RUN ln -sf /scripts/utils/verify-dependencies.sh /scripts/verify-dependencies.sh
 
-# Set up build directory
-WORKDIR /root
-RUN mkdir -p /root/claude-linux-desktop-build
+# Claude Desktop itself: Anthropic's official .deb, version + per-arch SHA256
+# pinned in claude-desktop.pin (shared with dockerhub/Dockerfile.dockerhub).
+# The rest of scripts/ is bind-mounted from the host at runtime, so only what
+# the install step needs is copied in.
+COPY claude-desktop.pin /tmp/claude-desktop.pin
+COPY scripts/build/install-claude-desktop.sh /tmp/install-claude-desktop.sh
+COPY scripts/utils/desktop-integration.sh /tmp/desktop-integration.sh
+RUN bash /tmp/install-claude-desktop.sh /tmp/claude-desktop.pin && \
+    bash /tmp/desktop-integration.sh && \
+    rm -f /tmp/claude-desktop.pin /tmp/install-claude-desktop.sh /tmp/desktop-integration.sh
 
-# We'll mount the source scripts from the host at runtime
-# for more flexibility during development
+WORKDIR /root
 
 # Expose ports
 EXPOSE 5901 6080

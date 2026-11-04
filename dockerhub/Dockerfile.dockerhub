@@ -1,95 +1,25 @@
 # =============================================================================
-# Multi-stage build: a fat builder that compiles Claude Desktop, and a slim
-# runtime that contains only the artifacts and the desktop/VNC stack needed
-# to run them. Keeps published image ~1.2GB smaller than a single-stage build
-# would, which matters for Docker Hub bandwidth and ARM64 pulls.
+# Published image: XFCE + TigerVNC + noVNC, plus Anthropic's official Claude
+# Desktop for Linux installed from its .deb (pinned in claude-desktop.pin).
+# Multi-arch (linux/amd64, linux/arm64): the install script picks the .deb
+# matching the target architecture, so there is nothing to cross-compile.
 # =============================================================================
+FROM ubuntu:22.04
 
-# -----------------------------------------------------------------------------
-# Stage 1: builder — has rustup, build-essential, p7zip, imagemagick, etc.
-#                    Runs build-claude.sh + desktop-integration.sh and is
-#                    discarded. Only /root/claude-app and integration files
-#                    are copied into the runtime stage.
-# -----------------------------------------------------------------------------
-FROM ubuntu:22.04 AS builder
-
-ARG TARGETARCH
-ARG BUILDARCH
-ARG VERSION=0.14.10
 ARG NODE_VERSION=22.x
 
 ENV USER=root
 ENV HOME=/root
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CLAUDE_VERSION=${VERSION}
-ENV TARGETARCH=${TARGETARCH}
-ENV BUILDARCH=${BUILDARCH}
 
-# Bootstrap: TLS, NodeSource repo, then Node.js + build tools + asar/electron.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg lsb-release apt-transport-https && \
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - && \
-    apt-get install -y --no-install-recommends \
-        nodejs build-essential git rsync wget \
-        p7zip-full imagemagick icoutils \
-        libssl-dev pkg-config && \
-    npm install -g asar @napi-rs/cli electron && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Rustup. apt's rustc 1.75 is too old for current crate MSRVs (e.g. unicode-
-# segmentation needs 1.85+). --profile minimal keeps it lean.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --profile minimal --default-toolchain stable && \
-    ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo && \
-    ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc
-
-WORKDIR /root
-COPY claude-linux-desktop-build /root/claude-linux-desktop-build/
-COPY scripts /scripts/
-RUN chmod +x /root/claude-linux-desktop-build/*.sh && \
-    chmod +x /scripts/utils/*.sh /scripts/run/*.sh /scripts/build/*.sh /scripts/fix/*.sh
-
-# Build Claude Desktop and run desktop integration. install.sh is intentionally
-# NOT called — it would extract a duplicate copy to ~/.local/claude-desktop;
-# the slim integration script handles desktop-menu/icon registration without
-# the duplication.
-RUN echo "Building Claude Desktop for ${TARGETARCH}" && \
-    cd /root/claude-linux-desktop-build && \
-    export APP_INSTALL_DIR=/root/claude-app && \
-    ./build-claude.sh && \
-    /scripts/utils/desktop-integration.sh
-
-# -----------------------------------------------------------------------------
-# Stage 2: runtime — XFCE + TigerVNC + noVNC + Electron's runtime libraries,
-#                    plus the built Claude artifacts copied from the builder.
-#                    No rustup, no build-essential, no p7zip/imagemagick.
-# -----------------------------------------------------------------------------
-FROM ubuntu:22.04 AS runtime
-
-ARG TARGETARCH
-ARG BUILDARCH
-ARG VERSION=0.14.10
-ARG NODE_VERSION=22.x
-
-ENV USER=root
-ENV HOME=/root
-ENV DEBIAN_FRONTEND=noninteractive
-ENV CLAUDE_VERSION=${VERSION}
-ENV TARGETARCH=${TARGETARCH}
-ENV BUILDARCH=${BUILDARCH}
-
-# Node.js + electron globally. We copy /root/claude-app from the builder; the
-# launcher invokes electron from PATH, so we still need it installed here.
-# (Could skip Node.js if we copied the npm-global tree too, but the savings
-# are small and this is simpler.)
+# Node.js is not needed by Claude Desktop itself (it bundles its own runtime),
+# but most MCP servers users add are launched with npx/node.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl gnupg lsb-release apt-transport-https && \
     curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION} | bash - && \
     apt-get install -y --no-install-recommends \
         nodejs && \
-    npm install -g electron && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Desktop environment + VNC stack.
@@ -170,20 +100,19 @@ RUN chmod +x /root/.vnc/xstartup /scripts/utils/xstartup /startup.sh && \
     ln -sf /scripts/utils/config /scripts/config && \
     ln -sf /scripts/utils/verify-dependencies.sh /scripts/verify-dependencies.sh
 
-# Bring in the built Claude Desktop and the desktop-integration artifacts
-# from the builder stage. This is the entire payload that needs to persist
-# from build time to runtime.
-COPY --from=builder /root/claude-app /root/claude-app
-COPY --from=builder /root/.local /root/.local
-COPY --from=builder /root/Desktop /root/Desktop
-COPY --from=builder /usr/local/bin/claude-desktop /usr/local/bin/claude-desktop
+# Claude Desktop itself: official .deb, version + per-arch SHA256 pinned in
+# claude-desktop.pin. Kept last so a version bump rebuilds only this layer.
+COPY claude-desktop.pin /tmp/claude-desktop.pin
+RUN /scripts/build/install-claude-desktop.sh /tmp/claude-desktop.pin && \
+    /scripts/utils/desktop-integration.sh && \
+    rm -f /tmp/claude-desktop.pin
 
 WORKDIR /root
 EXPOSE 5901 6080
 
-# Healthcheck verifies VNC is up AND a Claude renderer is alive (so a crashed
-# Electron process surfaces as unhealthy instead of green-on-port-only).
+# Healthcheck verifies VNC is up AND the Claude main process is alive (so a
+# crashed app surfaces as unhealthy instead of green-on-port-only).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD nc -z localhost 5901 && pgrep -f 'electron.*app.asar' >/dev/null || exit 1
+    CMD nc -z localhost 5901 && pgrep -f '^/usr/(bin|lib/claude-desktop)/claude-desktop' >/dev/null || exit 1
 
 CMD ["/startup.sh"]

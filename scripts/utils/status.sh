@@ -51,22 +51,15 @@ Ports: {{range \$p, \$conf := .NetworkSettings.Ports}}{{if \$conf}}{{range \$i, 
         echo ""
         echo "=== Claude Desktop ==="
         docker exec claude-desktop bash -c "
-            if [ -f /root/claude-app/bin/claude-desktop ]; then
-                echo 'Installation path: /root/claude-app/bin/claude-desktop'
-                if [ -f /root/claude-app/bin/version.txt ]; then
-                    echo -n 'Version: '
-                    cat /root/claude-app/bin/version.txt
-                elif [ -f /root/claude-app/version.txt ]; then
-                    echo -n 'Version: '
-                    cat /root/claude-app/version.txt
-                else
-                    echo 'Version: 0.14.10 (Assumed)'
-                fi
-                echo ''
-                echo 'To run Claude Desktop:'
-                echo '1. Access the VNC interface at localhost:5901 or http://localhost:6080/'
-                echo '2. In the container, run: /root/claude-app/bin/claude-desktop'
+            echo \"Version: \$(dpkg-query -W -f='\${Version}' claude-desktop)\"
+            echo 'Installation path: /usr/lib/claude-desktop (official .deb)'
+            if pgrep -f '^/usr/(bin|lib/claude-desktop)/claude-desktop' >/dev/null; then
+                echo 'Process: running'
+            else
+                echo 'Process: not running (./claude.sh start-claude to launch it)'
             fi
+            echo ''
+            echo 'Access it at http://localhost:6080/ or VNC localhost:5901'
         "
     fi
 
@@ -88,11 +81,7 @@ Ports: {{range \$p, \$conf := .NetworkSettings.Ports}}{{if \$conf}}{{range \$i, 
     echo ""
     echo "=== Disk Space Usage ==="
     docker exec claude-desktop bash -c "df -h / | tail -1 | awk '{print \"Container root: \"\$2\" total, \"\$4\" available (\"\$5\" used)\"}'"
-    docker exec claude-desktop bash -c "du -sh /root/claude-app 2>/dev/null || echo 'Claude app directory: Not found or empty'"
-    
-    if is_claude_desktop_built; then
-        docker exec claude-desktop bash -c "du -sh /root/.cache/claude-desktop-build 2>/dev/null || echo 'Build cache: Not found'"
-    fi
+    docker exec claude-desktop bash -c "du -sh /root/.config/Claude 2>/dev/null | awk '{print \"Claude config/session data: \"\$1}'"
 fi
 
 echo ""

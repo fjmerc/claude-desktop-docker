@@ -12,13 +12,12 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  setup             Initial setup and permission configuration"
-    echo "  build             Build Docker container and Claude Desktop"
+    echo "  build             Build the Docker image (includes Claude Desktop) and start it"
     echo "  start             Start the container"
     echo "  stop              Stop the container"
     echo "  restart           Restart the container"
     echo "  start-claude      Start Claude Desktop in an already running container"
     echo "  login-reset       Wipe Claude session state and restart (fresh login screen)"
-    echo "  find-electron     Find the electron binary in the container (for troubleshooting)"
     echo "  shell             Access container shell"
     echo "  logs              View container logs"
     echo "  status            Show container and Claude Desktop status"
@@ -63,15 +62,13 @@ case "$COMMAND" in
         "$SCRIPT_DIR/run/run.sh" restart "$@"
         ;;
     start-claude)
-        chmod +x "$SCRIPT_DIR/run/start-claude.sh"
-        "$SCRIPT_DIR/run/start-claude.sh" "$@"
+        # Normally unnecessary: startup.sh launches Claude and relaunches it
+        # if it exits. Useful with CLAUDE_AUTO_RESTART=0 or in kiosk mode.
+        docker exec -d -e DISPLAY=:1 claude-desktop claude-desktop
+        echo "Claude Desktop launch requested in the claude-desktop container."
         ;;
     login-reset)
         "$SCRIPT_DIR/run/login-reset.sh" "$@"
-        ;;
-    find-electron)
-        chmod +x "$SCRIPT_DIR/utils/find-electron.sh"
-        docker exec claude-desktop /bin/bash -c "/scripts/utils/find-electron.sh"
         ;;
     shell)
         "$SCRIPT_DIR/utils/shell.sh" "$@"

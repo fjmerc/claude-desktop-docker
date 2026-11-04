@@ -23,7 +23,7 @@ chmod +x "${SCRIPT_DIR}"/*.sh 2>/dev/null || true
 
 # Default configuration
 DEFAULT_DOCKER_REPO="fjmerc/claude-desktop"
-DEFAULT_VERSION="0.14.10"
+DEFAULT_VERSION="$(. "${SCRIPT_DIR}/../claude-desktop.pin" && echo "$CLAUDE_VERSION")"
 
 # User configuration (can be overridden)
 DOCKER_REPO="${DEFAULT_DOCKER_REPO}"

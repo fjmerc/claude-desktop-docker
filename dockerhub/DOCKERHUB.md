@@ -1,6 +1,6 @@
 # Claude Desktop Docker
 
-Run [Claude Desktop](https://claude.ai/desktop) in a Docker container with VNC and web access.
+Run [Claude Desktop](https://claude.ai/desktop) in a Docker container with VNC and web access. The image ships Anthropic's official Linux build of Claude Desktop, installed from their APT repository and verified against a pinned SHA256.
 
 ## Features
 
@@ -42,7 +42,6 @@ services:
       - "5901:5901"  # VNC port
       - "6080:6080"  # noVNC web interface port
     volumes:
-      - app:/root/claude-app
       - cache:/root/.cache
       - config:/root/.config/Claude
       - home:/root/home
@@ -52,7 +51,6 @@ services:
     shm_size: 2gb
     restart: unless-stopped
 volumes:
-  app:
   cache:
   config:
   home:
@@ -67,13 +65,14 @@ docker-compose up -d
 ## Environment Variables
 
 - `DISPLAY`: X display number (default: `:1`)
-- `APP_INSTALL_DIR`: Claude Desktop installation directory (default: `/root/claude-app`)
 - `USER`: User for the container (default: `root`)
 - `HOME`: Home directory (default: `/root`)
 
 ## Volumes
 
-- `/root/claude-app`: Claude Desktop application files
+Claude Desktop itself lives in the image (`/usr/lib/claude-desktop`), not in a volume, so pulling a new tag really updates it. If you used an image older than 4.x, delete its leftover `app` volume.
+
+
 - `/root/.cache`: Cache directory
 - `/root/.config/Claude`: Claude configuration
 - `/root/home`: Home directory for user files
@@ -81,8 +80,8 @@ docker-compose up -d
 ## Tags
 
 - `latest`: Latest stable build
-- `0.14.10`: Specific version (matches Claude Desktop version)
-- `0.9`: Major.minor version
+- `4.4212.0`: Specific version (matches the Claude Desktop version inside)
+- `4.4212`: Major.minor version
 
 ## Architectures
 
@@ -104,7 +103,7 @@ docker exec -it claude-desktop bash -c "/scripts/fix/fix-vnc.sh"
 If Claude Desktop doesn't start automatically:
 
 ```bash
-docker exec -it claude-desktop bash -c "cd /root/claude-app/bin && ./claude-desktop --no-sandbox"
+docker exec -d -e DISPLAY=:1 claude-desktop claude-desktop
 ```
 
 ## Building from Source

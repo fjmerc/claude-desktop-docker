@@ -5,7 +5,7 @@
 set -e  # Exit on any error
 
 # Default options
-VERSION="0.14.10"  # Match with Claude Desktop version
+VERSION="$(. "$(dirname "${BASH_SOURCE[0]}")/../../claude-desktop.pin" && echo "$CLAUDE_VERSION")"  # Claude Desktop version from the pin
 INCLUDE_BUILD=false
 
 # Display help

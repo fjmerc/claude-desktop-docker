@@ -11,8 +11,10 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 source "${SCRIPT_DIR}/dockerhub-logger.sh"
 
-# Default options
-VERSION="0.14.10"
+# Default options. The version is whatever claude-desktop.pin installs; it
+# only names the tag, so it must never differ from the pin.
+PINNED_VERSION="$(. "${SCRIPT_DIR}/../claude-desktop.pin" && echo "$CLAUDE_VERSION")"
+VERSION="${PINNED_VERSION}"
 PLATFORMS="linux/amd64,linux/arm64"
 DOCKER_REPO="fjmerc/claude-desktop"
 PUSH=false
@@ -50,7 +52,7 @@ show_help() {
     echo "  --help              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 --version 0.14.10 --platforms linux/amd64,linux/arm64 --push"
+    echo "  $0 --platforms linux/amd64,linux/arm64 --push"
     echo "  $0 --platforms linux/amd64 --load --no-cache"
     echo ""
 }
@@ -92,6 +94,12 @@ fi
 BUILD_START_TIME=$(date +%s)
 
 # Log build start
+if [ "$VERSION" != "$PINNED_VERSION" ]; then
+    log_error "--version $VERSION does not match claude-desktop.pin ($PINNED_VERSION); the tag would mislabel the image."
+    log_error "Bump the pin first: scripts/utils/bump-claude-version.sh <version> <sha256-amd64> <sha256-arm64>"
+    exit 1
+fi
+
 log_build_start "$VERSION" "$PLATFORMS"
 
 # Function to check if a command exists
@@ -184,7 +192,6 @@ setup_buildx_builder() {
 prepare_build_args() {
     BUILD_ARGS=(
         "--file" "${SCRIPT_DIR}/Dockerfile.dockerhub"
-        "--build-arg" "VERSION=${VERSION}"
         "--build-arg" "NODE_VERSION=${NODE_VERSION}"
         "--progress" "${PROGRESS}"
     )
