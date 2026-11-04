@@ -1,5 +1,14 @@
 # Claude Desktop in Docker
 
+> **Archived (November 2026).** This project is no longer maintained.
+> It was started because Claude Desktop had no Linux version; Anthropic now
+> publishes an official one (amd64 and arm64) as a `.deb` from their APT
+> repository at `https://downloads.claude.ai/claude-desktop/apt/stable`
+> (suite `stable`, component `main`). The final commit installs that package
+> and still works if you want Claude Desktop in a container behind a browser,
+> but it won't receive version bumps; edit `claude-desktop.pin` yourself or
+> use Anthropic's package directly.
+
 Run Anthropic's **Claude Desktop** headless inside a Docker container. The
 image installs Anthropic's official Linux build (the `.deb` from their APT
 repository); the app runs under XFCE on a virtual display served over **VNC**
