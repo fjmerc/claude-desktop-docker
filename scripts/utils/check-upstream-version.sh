@@ -68,7 +68,12 @@ upstream_version() {
         fi
     done
     [ -n "$common" ] || die "no version is published for all of: $ARCHES"
-    echo "$common" | sort -V | tail -1
+    local latest
+    latest=$(echo "$common" | sort -V | tail -1)
+    # The index is external data that CI feeds into shell steps, branch names
+    # and sed patterns. Refuse anything that isn't a plain X.Y.Z version.
+    [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "upstream version is not X.Y.Z: '$latest'"
+    echo "$latest"
 }
 
 check_feed_fresh
@@ -83,6 +88,7 @@ case "${1:-}" in
         version="${3:?usage: --sha256 <arch> <version>}"
         sha=$(index_entries "$arch" | awk -v v="$version" '$1 == v { print $2 }' | tail -1)
         [ -n "$sha" ] || die "no $arch entry for version $version in the index"
+        [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || die "$arch SHA256 in the index is not 64 hex chars: '$sha'"
         echo "$sha"
         exit 0
         ;;

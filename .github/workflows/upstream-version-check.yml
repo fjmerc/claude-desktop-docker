@@ -84,11 +84,11 @@ jobs:
 
       - name: Bump pinned version and hashes
         if: steps.drift.outputs.bump == 'true'
-        run: >-
-          bash scripts/utils/bump-claude-version.sh
-          "${{ steps.drift.outputs.upstream }}"
-          "${{ steps.sha.outputs.sha256_amd64 }}"
-          "${{ steps.sha.outputs.sha256_arm64 }}"
+        env:
+          UPSTREAM: ${{ steps.drift.outputs.upstream }}
+          SHA256_AMD64: ${{ steps.sha.outputs.sha256_amd64 }}
+          SHA256_ARM64: ${{ steps.sha.outputs.sha256_arm64 }}
+        run: bash scripts/utils/bump-claude-version.sh "$UPSTREAM" "$SHA256_AMD64" "$SHA256_ARM64"
 
       - name: Set up Docker Buildx
         if: steps.drift.outputs.bump == 'true'

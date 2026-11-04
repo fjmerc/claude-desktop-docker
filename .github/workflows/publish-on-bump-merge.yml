@@ -45,4 +45,5 @@ jobs:
       - name: Dispatch Docker Hub publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run dockerhub.yml --ref "${{ github.event.pull_request.base.ref }}" -f version="$VERSION"
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: gh workflow run dockerhub.yml --ref "$BASE_REF" -f version="$VERSION"
